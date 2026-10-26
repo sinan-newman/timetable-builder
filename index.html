@@ -85,7 +85,22 @@ header.top{
 }
 h1{font-size:1.5rem;line-height:1.15;margin:0;letter-spacing:-.01em;font-weight:650}
 header.top p{margin:4px 0 0;color:var(--ink-soft);font-size:.9rem;max-width:54ch}
+.top-actions{display:flex;flex-direction:column;align-items:flex-end;gap:7px}
+.top-buttons{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
 .saved{font-size:.78rem;color:var(--ink-soft);white-space:nowrap}
+.toast{
+  position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(100px);
+  background:var(--ink);color:var(--paper);padding:10px 18px;border-radius:8px;
+  font-size:.88rem;font-weight:550;box-shadow:0 6px 20px rgba(0,0,0,.25);
+  transition:transform .2s ease, opacity .2s ease;opacity:0;pointer-events:none;z-index:9999;
+  max-width:90vw;text-align:center;
+}
+.toast.show{transform:translateX(-50%) translateY(0);opacity:1}
+.toast.warn{background:var(--bad,#9b1c1c);color:#fff}
+.toast.success{background:var(--accent,#1f6b63);color:#fff}
+@media (max-width:640px){
+  .top-actions{align-items:flex-start;width:100%}
+}
 
 nav.tabs{display:flex;gap:2px;flex-wrap:wrap;margin-bottom:20px}
 nav.tabs button{
@@ -289,7 +304,16 @@ dialog::backdrop{background:rgba(0,0,0,0.5);backdrop-filter:blur(2px)}
     <h1>Department timetable builder</h1>
     <p>Set up your classes and teachers, enter how many hours each teacher takes in each class, and generate a clash-free timetable.</p>
   </div>
-  <div class="saved" id="savedMsg"></div>
+  <div class="top-actions">
+    <div class="saved" id="savedMsg"></div>
+    <div class="top-buttons">
+      <button type="button" class="btn small" id="saveSetupBtn" title="Save setup to browser storage so you can safely return later">💾 Save setup</button>
+      <button type="button" class="btn small primary" id="shareLinkBtn" title="Share current setup with colleagues via link">🔗 Share link</button>
+      <button type="button" class="btn small" id="exportSetupBtn" title="Download timetable setup as a JSON file">📥 Export</button>
+      <button type="button" class="btn small" id="importSetupBtn" title="Load a timetable setup from JSON file">📤 Import</button>
+      <input type="file" id="importFileInput" accept=".json" style="display:none">
+    </div>
+  </div>
 </header>
 
 <nav class="tabs" role="tablist">
@@ -492,6 +516,30 @@ dialog::backdrop{background:rgba(0,0,0,0.5);backdrop-filter:blur(2px)}
     <button type="button" class="btn primary" id="deptModalApply">Apply to Timetable</button>
   </div>
 </dialog>
+
+<dialog id="shareModal">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+    <h3 style="margin:0;font-size:18px">Share Timetable Setup</h3>
+    <button type="button" id="shareModalClose" style="background:none;border:none;font-size:24px;cursor:pointer;color:var(--ink-soft);line-height:1">&times;</button>
+  </div>
+  <p class="hint" style="margin:0 0 14px 0">Send this link to anyone. When they open it, your entire timetable configuration — classes, teachers, assigned hours, and rules — will load automatically so they can continue working.</p>
+  
+  <div style="margin-bottom:16px;background:var(--paper);padding:12px;border-radius:8px;border:1px solid var(--line)">
+    <label for="shareUrlInput" style="display:block;font-size:.85rem;font-weight:600;margin-bottom:6px">Share Link:</label>
+    <div style="display:flex;gap:8px">
+      <input type="text" id="shareUrlInput" readonly style="font-size:.82rem;font-family:monospace;background:var(--card);cursor:pointer;padding:6px 8px;border:1px solid var(--line-strong);border-radius:6px;width:100%" onclick="this.select()">
+      <button type="button" class="btn primary small" id="copyShareBtn" style="white-space:nowrap;flex:none">Copy Link</button>
+    </div>
+    <div id="shareCopyFeedback" style="font-size:.8rem;color:var(--good);margin-top:6px;min-height:1.2em"></div>
+  </div>
+
+  <div style="border-top:1px solid var(--line);padding-top:14px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
+    <button type="button" class="btn ghost small" id="shareExportBtn">📥 Or download as file</button>
+    <button type="button" class="btn small" id="shareModalDone">Done</button>
+  </div>
+</dialog>
+
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
 
 </div>
 
@@ -709,9 +757,52 @@ let running = false;
 
 /* ---------------------------------------------------------------- storage */
 const LS_KEY = "tt.builder.v1";
+const LS_TIME_KEY = "tt.builder.save_time";
 let db = null;
 let downloadsCap = null;
 let saveTimer = null;
+let toastTimer = null;
+
+function formatSaveTime(d = new Date()) {
+  try {
+    return d.toLocaleDateString(undefined, {month:'short', day:'numeric'}) + " at " + d.toLocaleTimeString(undefined, {hour:'2-digit', minute:'2-digit'});
+  } catch (e) {
+    return d.toISOString().slice(0, 16).replace('T', ' ');
+  }
+}
+
+function stamp(msg) {
+  const m = document.getElementById("savedMsg");
+  if (m) m.textContent = msg;
+}
+
+function showToast(msg, type = "normal") {
+  const t = document.getElementById("toast");
+  if (!t) return;
+  t.textContent = msg;
+  t.className = "toast show" + (type === "warn" ? " warn" : type === "success" ? " success" : "");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { if (t) t.className = "toast"; }, 3500);
+}
+
+function encodeState(obj) {
+  const json = JSON.stringify(obj);
+  try {
+    return btoa(encodeURIComponent(json).replace(/%([0-9A-F]{2})/g, (_, p1) => String.fromCharCode('0x' + p1)));
+  } catch (e) {
+    return btoa(unescape(encodeURIComponent(json)));
+  }
+}
+
+function decodeState(b64) {
+  try {
+    const binary = atob(b64);
+    const json = decodeURIComponent(Array.prototype.map.call(binary, c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join(''));
+    return JSON.parse(json);
+  } catch (e) {
+    return JSON.parse(decodeURIComponent(escape(atob(b64))));
+  }
+}
 
 async function ensureDownloads() {
   if (downloadsCap) return downloadsCap;
@@ -720,19 +811,32 @@ async function ensureDownloads() {
   return downloadsCap;
 }
 
-function stamp(msg) { document.getElementById("savedMsg").textContent = msg; }
-
 function save() {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(async () => {
     const payload = JSON.stringify(S);
-    try { localStorage.setItem(LS_KEY, payload); } catch (e) { /* storage off */ }
+    const timeStr = formatSaveTime();
+    try {
+      localStorage.setItem(LS_KEY, payload);
+      localStorage.setItem(LS_TIME_KEY, timeStr);
+      stamp("Saved " + timeStr);
+    } catch (e) { /* storage off */ }
     if (db) {
-      try { await db.doc("config/main").set({ payload }); stamp("Saved"); return; }
+      try { await db.doc("config/main").set({ payload }); stamp("Saved " + timeStr); return; }
       catch (e) { /* fall through */ }
     }
-    stamp("Saved on this device");
   }, 400);
+}
+
+function manualSave() {
+  const payload = JSON.stringify(S);
+  const timeStr = formatSaveTime();
+  try {
+    localStorage.setItem(LS_KEY, payload);
+    localStorage.setItem(LS_TIME_KEY, timeStr);
+  } catch (e) { /* storage off */ }
+  stamp("Saved " + timeStr);
+  showToast("Setup saved! You can return anytime to continue.", "success");
 }
 
 function adopt(obj) {
@@ -744,15 +848,51 @@ function adopt(obj) {
 }
 
 async function boot() {
-  try {
-    const raw = localStorage.getItem(LS_KEY);
-    if (raw) adopt(JSON.parse(raw));
-  } catch (e) { /* ignore */ }
+  let loadedFromShare = false;
+  if (typeof window !== "undefined" && window.location && window.location.hash) {
+    const hash = window.location.hash;
+    if (hash.startsWith("#setup=")) {
+      try {
+        const b64 = hash.slice(7);
+        const obj = decodeState(b64);
+        if (adopt(obj)) {
+          loadedFromShare = true;
+          const timeStr = formatSaveTime();
+          try {
+            localStorage.setItem(LS_KEY, JSON.stringify(S));
+            localStorage.setItem(LS_TIME_KEY, timeStr);
+          } catch (e) {}
+          stamp("Loaded shared setup");
+          showToast("Loaded timetable setup from shared link!", "success");
+          try {
+            if (window.history && window.history.replaceState) {
+              window.history.replaceState(null, "", window.location.pathname + window.location.search);
+            }
+          } catch (e) {}
+        }
+      } catch (e) {
+        console.error("Shared link decode error:", e);
+        showToast("Could not load shared setup: invalid format", "warn");
+      }
+    }
+  }
+
+  if (!loadedFromShare) {
+    try {
+      const raw = localStorage.getItem(LS_KEY);
+      if (raw && adopt(JSON.parse(raw))) {
+        const lastTime = localStorage.getItem(LS_TIME_KEY);
+        if (lastTime) stamp("Saved " + lastTime);
+        else stamp("Saved on this device");
+      }
+    } catch (e) { /* ignore */ }
+  }
+
   renderAll();
   if (window.claude && claude.use) {
     try {
       db = await claude.use("db");
-      if (db) {
+      if (db && !loadedFromShare) {
         const snap = await db.doc("config/main").get();
         if (snap && snap.payload) { if (adopt(JSON.parse(snap.payload))) renderAll(); stamp("Saved"); }
       }
@@ -1509,6 +1649,135 @@ if (el("deptModalApply")) {
 if (el("deptModal")) {
   el("deptModal").addEventListener("click", e => {
     if (e.target === el("deptModal")) closeDeptModal();
+  });
+}
+
+function getShareUrl() {
+  if (typeof window === "undefined" || !window.location) return "";
+  const base = window.location.origin + window.location.pathname;
+  return base + "#setup=" + encodeState(S);
+}
+
+function openShareModal() {
+  const modal = el("shareModal");
+  if (!modal) return;
+  const url = getShareUrl();
+  const inp = el("shareUrlInput");
+  if (inp) inp.value = url;
+  const feedback = el("shareCopyFeedback");
+  if (feedback) feedback.textContent = "";
+  const copyBtn = el("copyShareBtn");
+  if (copyBtn) copyBtn.textContent = "Copy Link";
+
+  if (navigator && navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(url).then(() => {
+      if (feedback) feedback.textContent = "✓ Link copied to clipboard!";
+      if (copyBtn) copyBtn.textContent = "Copied!";
+    }).catch(() => {});
+  }
+
+  if (typeof modal.showModal === "function") modal.showModal();
+  else modal.setAttribute("open", "true");
+}
+
+function closeShareModal() {
+  const modal = el("shareModal");
+  if (!modal) return;
+  if (typeof modal.close === "function") modal.close();
+  else modal.removeAttribute("open");
+}
+
+function copyShareUrl() {
+  const inp = el("shareUrlInput");
+  if (!inp) return;
+  inp.select();
+  inp.setSelectionRange(0, 99999);
+  const feedback = el("shareCopyFeedback");
+  const copyBtn = el("copyShareBtn");
+
+  const setSuccess = () => {
+    if (feedback) feedback.textContent = "✓ Link copied to clipboard!";
+    if (copyBtn) copyBtn.textContent = "Copied!";
+    setTimeout(() => { if (copyBtn) copyBtn.textContent = "Copy Link"; }, 2500);
+  };
+
+  if (navigator && navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(inp.value).then(setSuccess).catch(() => {
+      try {
+        document.execCommand("copy");
+        setSuccess();
+      } catch (err) {
+        if (feedback) feedback.textContent = "Press Ctrl+C to copy";
+      }
+    });
+  } else {
+    try {
+      document.execCommand("copy");
+      setSuccess();
+    } catch (err) {
+      if (feedback) feedback.textContent = "Press Ctrl+C to copy";
+    }
+  }
+}
+
+function exportSetupFile() {
+  const jsonStr = JSON.stringify(S, null, 2);
+  const blob = new Blob([jsonStr], { type: "application/json" });
+  const dateStr = new Date().toISOString().slice(0, 10);
+  const filename = `timetable-setup-${dateStr}.json`;
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => {
+    URL.revokeObjectURL(a.href);
+    a.remove();
+  }, 500);
+  showToast(`Exported setup to ${filename}`, "success");
+}
+
+function triggerImportSetup() {
+  const inp = el("importFileInput");
+  if (inp) {
+    inp.value = "";
+    inp.click();
+  }
+}
+
+function handleFileImport(e) {
+  const file = e.target.files && e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    try {
+      const obj = JSON.parse(ev.target.result);
+      if (adopt(obj)) {
+        renderAll();
+        manualSave();
+        showToast("Timetable setup imported successfully!", "success");
+      } else {
+        showToast("Invalid timetable setup file.", "warn");
+      }
+    } catch (err) {
+      showToast("Could not parse JSON file: " + err.message, "warn");
+    }
+  };
+  reader.readAsText(file);
+}
+
+if (el("saveSetupBtn")) el("saveSetupBtn").onclick = manualSave;
+if (el("shareLinkBtn")) el("shareLinkBtn").onclick = openShareModal;
+if (el("exportSetupBtn")) el("exportSetupBtn").onclick = exportSetupFile;
+if (el("shareExportBtn")) el("shareExportBtn").onclick = exportSetupFile;
+if (el("importSetupBtn")) el("importSetupBtn").onclick = triggerImportSetup;
+if (el("importFileInput")) el("importFileInput").onchange = handleFileImport;
+if (el("shareModalClose")) el("shareModalClose").onclick = closeShareModal;
+if (el("shareModalDone")) el("shareModalDone").onclick = closeShareModal;
+if (el("copyShareBtn")) el("copyShareBtn").onclick = copyShareUrl;
+if (el("shareModal")) {
+  el("shareModal").addEventListener("click", e => {
+    if (e.target === el("shareModal")) closeShareModal();
   });
 }
 function buildCsvText() {
