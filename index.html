@@ -341,7 +341,10 @@ dialog::backdrop{background:rgba(0,0,0,0.5);backdrop-filter:blur(2px)}
   </div>
 
   <div class="card">
-    <h2>Teachers</h2>
+    <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px">
+      <h2>Teachers</h2>
+      <button type="button" class="btn ghost small" id="clearSubjectsBtn" title="Remove subject name from all teachers" style="font-size:.78rem;padding:3px 8px">Clear all subjects</button>
+    </div>
     <p class="hint">Short form is a 3–8 letter code (auto-filled, editable) used on compact timetables and the master schedule. The subject shows up in each timetable cell. Max per day caps how many periods a teacher can be given on a single day. Assigned total hours can be edited directly.</p>
     <div class="scroll"><table id="teacherTable"></table></div>
     <div class="row" style="margin-top:12px">
@@ -481,7 +484,10 @@ dialog::backdrop{background:rgba(0,0,0,0.5);backdrop-filter:blur(2px)}
       <button data-view="teacher" aria-pressed="false">By teacher</button>
       <button data-view="master" aria-pressed="false">Master (all teachers)</button>
     </div>
-    <label class="inline"><input type="checkbox" id="optShort"> Use short forms</label>
+    <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">
+      <label class="inline"><input type="checkbox" id="optShowSubject" checked> Show subject name</label>
+      <label class="inline"><input type="checkbox" id="optShort"> Use short forms</label>
+    </div>
   </div>
 
 
@@ -511,9 +517,12 @@ dialog::backdrop{background:rgba(0,0,0,0.5);backdrop-filter:blur(2px)}
     <div id="deptTeachersPreview" style="max-height:240px;overflow-y:auto;border:1px solid #e2e4e8;border-radius:8px;padding:8px;background:#fafbfc"></div>
   </div>
 
-  <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:20px">
-    <button type="button" class="btn" id="deptModalCancel">Cancel</button>
-    <button type="button" class="btn primary" id="deptModalApply">Apply to Timetable</button>
+  <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-top:20px">
+    <label class="inline" style="font-weight:500;font-size:.85rem"><input type="checkbox" id="deptSetSubject" checked> Include department as subject</label>
+    <div style="display:flex;gap:10px">
+      <button type="button" class="btn" id="deptModalCancel">Cancel</button>
+      <button type="button" class="btn primary" id="deptModalApply">Apply to Timetable</button>
+    </div>
   </div>
 </dialog>
 
@@ -748,6 +757,7 @@ function exampleState() {
       noP123: true,
       fairAll: true,
       shortForms: false,
+      showSubject: true,
       effort: 2
     }
   };
@@ -828,7 +838,8 @@ function compactState(s) {
       s.opts.maxRun,
       s.opts.noP123 ? 1 : 0,
       s.opts.fairAll ? 1 : 0,
-      s.opts.effort
+      s.opts.effort,
+      s.opts.showSubject !== undefined && !s.opts.showSubject ? 0 : 1
     ] : undefined
   };
 }
@@ -877,6 +888,7 @@ function expandState(obj) {
     if (obj.o[2] !== undefined) opts.noP123 = !!obj.o[2];
     if (obj.o[3] !== undefined) opts.fairAll = !!obj.o[3];
     if (obj.o[4] !== undefined) opts.effort = obj.o[4];
+    if (obj.o[5] !== undefined) opts.showSubject = !!obj.o[5];
   }
   return {
     days: obj.d || ["Mon", "Tue", "Wed", "Thu", "Fri"],
@@ -1076,6 +1088,7 @@ function normalise() {
   S.opts.maxTeacherDay = Math.max(1, Math.min(P, +S.opts.maxTeacherDay || 4));
   if (S.opts.noP123 === undefined) S.opts.noP123 = true;
   if (S.opts.fairAll === undefined) S.opts.fairAll = true;
+  if (S.opts.showSubject === undefined) S.opts.showSubject = true;
   if (!S.pins || typeof S.pins !== "object") S.pins = {};
   Object.keys(S.pins).forEach(k => {
     const [cid, d, p] = k.split("|");
@@ -1551,6 +1564,7 @@ function renderAll() {
   if (el("optFairAll")) el("optFairAll").checked = !!S.opts.fairAll;
   if (el("optEffort")) el("optEffort").value = S.opts.effort;
   if (el("optShort")) el("optShort").checked = !!S.opts.shortForms;
+  if (el("optShowSubject")) el("optShowSubject").checked = S.opts.showSubject !== undefined ? !!S.opts.showSubject : true;
   renderPins();
   renderExceptions();
   renderSummary();
@@ -1745,6 +1759,14 @@ document.querySelectorAll("#viewToggle button").forEach(b => {
   };
 });
 el("optShort").onchange = () => { S.opts.shortForms = el("optShort").checked; renderResult(); save(); };
+if (el("optShowSubject")) el("optShowSubject").onchange = () => { S.opts.showSubject = el("optShowSubject").checked; renderResult(); save(); };
+if (el("clearSubjectsBtn")) el("clearSubjectsBtn").onclick = () => {
+  S.teachers.forEach(t => t.subject = "");
+  renderTeachers();
+  renderResult();
+  save();
+  showToast("Removed subject names from all teachers.", "success");
+};
 
 if (el("deptSelect")) {
   el("deptSelect").onchange = e => {
@@ -1767,12 +1789,13 @@ if (el("deptModalApply")) {
     const inputs = Array.from(el("deptTeachersPreview").querySelectorAll(".dept-teacher-h"));
     const teacherHours = inputs.map(inp => Math.max(0, +inp.value || 0));
     const total = teacherHours.reduce((a, b) => a + b, 0);
+    const setSubj = el("deptSetSubject") ? el("deptSetSubject").checked : true;
 
     S.teachers = currentDept.teachers.map(t => ({
       id: uid("t"),
       name: t.name,
       code: t.code,
-      subject: currentDept.name,
+      subject: setSubj ? currentDept.name : "",
       maxPerDay: Math.min(S.periods, 4)
     }));
     S.pins = {};
@@ -1944,6 +1967,7 @@ if (el("shareModal")) {
 function buildCsvText() {
   const R = RESULT, lines = [];
   const short = !!S.opts.shortForms;
+  const showSubj = S.opts.showSubject !== undefined ? !!S.opts.showSubject : true;
   const label = t => short ? (t.code || t.name) : t.name;
   if (VIEW === "class") {
     R.classes.forEach((c, ci) => {
@@ -1954,7 +1978,7 @@ function buildCsvText() {
         for (let p = 0; p < R.P; p++) {
           const t = R.grid[R.idx(ci, d, p)];
           const T = t >= 0 ? R.teachers[t] : null;
-          row.push('"' + (T ? (T.subject ? T.subject + " / " + label(T) : label(T)) : "") + '"');
+          row.push('"' + (T ? ((showSubj && T.subject) ? T.subject + " / " + label(T) : label(T)) : "") + '"');
         }
         lines.push(row.join(","));
       });
@@ -2063,6 +2087,7 @@ function buildPdfBlob() {
     }
   });
   const short = !!S.opts.shortForms;
+  const showSubj = S.opts.showSubject !== undefined ? !!S.opts.showSubject : true;
   const label = t => short ? (t.code || t.name) : t.name;
 
   function drawBlock(title, meta, rowLabels, cellFn, isFirst) {
@@ -2137,7 +2162,8 @@ function buildPdfBlob() {
         const t = R.grid[R.idx(ci, ri, p)];
         if (t < 0) return null;
         const T = R.teachers[t];
-        const main = T.subject || label(T), sub = T.subject ? label(T) : null;
+        const main = (showSubj && T.subject) ? T.subject : label(T);
+        const sub = (showSubj && T.subject) ? label(T) : null;
         const fill = hslToRgb(T.hue, 42, 92);
         const textColor = hslToRgb(T.hue, 55, 26);
         const subColor = hslToRgb(T.hue, 50, 38);
@@ -2152,7 +2178,8 @@ function buildPdfBlob() {
       let total = 0;
       for (let d = 0; d < R.days.length; d++) for (let p = 0; p < R.P; p++)
         for (let ci = 0; ci < R.C; ci++) if (R.grid[R.idx(ci, d, p)] === ti) total++;
-      drawBlock(`${t.name}${t.code ? " (" + t.code + ")" : ""}`, (t.subject ? t.subject + " · " : "") + total + " hours a week", R.days, (ri, p) => {
+      const subjStr = (showSubj && t.subject) ? t.subject + " · " : "";
+      drawBlock(`${t.name}${t.code ? " (" + t.code + ")" : ""}`, subjStr + total + " hours a week", R.days, (ri, p) => {
         let found = -1;
         for (let ci = 0; ci < R.C; ci++) if (R.grid[R.idx(ci, ri, p)] === ti) { found = ci; break; }
         if (found < 0) return null;
@@ -2810,6 +2837,7 @@ function renderResult() {
   });
   const out = [];
   const short = !!S.opts.shortForms;
+  const showSubj = S.opts.showSubject !== undefined ? !!S.opts.showSubject : true;
   const label = t => short ? (t.code || t.name) : t.name;
 
   if (VIEW === "class") {
@@ -2825,8 +2853,8 @@ function renderResult() {
           const T = R.teachers[t];
           const bad = clashSet.has(t + ":" + d + ":" + p) ? " clash" : "";
           const pinned = cid && S.pins[pinKey(cid, d, p)] ? " pinned" : "";
-          const main = T.subject || label(T);
-          const sub = T.subject ? label(T) : null;
+          const main = (showSubj && T.subject) ? T.subject : label(T);
+          const sub = (showSubj && T.subject) ? label(T) : null;
           cells.push(`<td class="slot pick-cell${bad}${pinned}" data-pin="${ci}_${d}_${p}" style="--h:${T.hue}" title="${esc(T.name)} — click to lock or unlock this hour"><div class="slot-main">${esc(main)}</div>${sub ? `<div class="slot-sub">${esc(sub)}</div>` : ""}</td>`);
         }
         return `<tr><th class="day">${esc(day)}</th>${cells.join("")}</tr>`;
@@ -2850,7 +2878,8 @@ function renderResult() {
         }
         return `<tr><th class="day">${esc(day)}</th>${cells.join("")}</tr>`;
       }).join("");
-      out.push(block(`${t.name}${t.code ? " (" + t.code + ")" : ""}`, (t.subject ? t.subject + " · " : "") + total + " hours", rows));
+      const subjStr = (showSubj && t.subject) ? t.subject + " · " : "";
+      out.push(block(`${t.name}${t.code ? " (" + t.code + ")" : ""}`, subjStr + total + " hours", rows));
     });
   } else {
     R.days.forEach((day, d) => {
