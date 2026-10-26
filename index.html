@@ -277,16 +277,16 @@ details.advanced summary:hover{color:var(--ink)}
 }
 @media print{
   @page{ size:landscape; margin:10mm; }
+  *{-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important}
   body{background:#fff}
-  nav.tabs,.noprint,header.top .saved{display:none !important}
+  nav.tabs,.noprint,header.top .saved,.top-buttons{display:none !important}
   .wrap{max-width:none;padding:0}
   .card{border:none;padding:0;box-shadow:none;margin-bottom:14px}
   #panel-result{display:block !important}
   .tt-block{page-break-inside:avoid;break-inside:avoid}
   .grid-tt{min-width:0}
-  .grid-tt td{border:1px solid #bbb !important;background:#fff !important;color:#000 !important}
-  .grid-tt td.slot{background:#f2f2f2 !important}
-  .grid-tt td.pinned::after{color:#000}
+  .grid-tt td{border:1px solid var(--line-strong,#ccc)}
+  .grid-tt td.pinned::after{color:inherit}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none !important}}
 dialog{max-width:540px;width:92%;border:none;border-radius:12px;box-shadow:0 14px 40px rgba(0,0,0,0.22);padding:22px;background:var(--card,#fff);color:var(--ink,#111)}
@@ -525,12 +525,15 @@ dialog::backdrop{background:rgba(0,0,0,0.5);backdrop-filter:blur(2px)}
   <p class="hint" style="margin:0 0 14px 0">Send this link to anyone. When they open it, your entire timetable configuration — classes, teachers, assigned hours, and rules — will load automatically so they can continue working.</p>
   
   <div style="margin-bottom:16px;background:var(--paper);padding:12px;border-radius:8px;border:1px solid var(--line)">
-    <label for="shareUrlInput" style="display:block;font-size:.85rem;font-weight:600;margin-bottom:6px">Share Link:</label>
+    <label for="shareUrlInput" style="display:block;font-size:.85rem;font-weight:600;margin-bottom:6px">Share Link (Compact):</label>
     <div style="display:flex;gap:8px">
       <input type="text" id="shareUrlInput" readonly style="font-size:.82rem;font-family:monospace;background:var(--card);cursor:pointer;padding:6px 8px;border:1px solid var(--line-strong);border-radius:6px;width:100%" onclick="this.select()">
       <button type="button" class="btn primary small" id="copyShareBtn" style="white-space:nowrap;flex:none">Copy Link</button>
     </div>
-    <div id="shareCopyFeedback" style="font-size:.8rem;color:var(--good);margin-top:6px;min-height:1.2em"></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;flex-wrap:wrap;gap:8px">
+      <div id="shareCopyFeedback" style="font-size:.8rem;color:var(--good);min-height:1.2em"></div>
+      <button type="button" class="btn small" id="makeTinyBtn" style="font-size:.78rem;padding:3px 9px" title="Generate a short 20-character TinyURL">🔗 Make TinyURL ↗</button>
+    </div>
   </div>
 
   <div style="border-top:1px solid var(--line);padding-top:14px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
@@ -785,6 +788,138 @@ function showToast(msg, type = "normal") {
   toastTimer = setTimeout(() => { if (t) t.className = "toast"; }, 3500);
 }
 
+function compactState(s) {
+  const tMap = {}, cMap = {};
+  s.teachers.forEach((t, i) => tMap[t.id] = i);
+  s.classes.forEach((c, i) => cMap[c.id] = i);
+  const a = [];
+  Object.keys(s.alloc || {}).forEach(k => {
+    const [tid, cid] = k.split("|");
+    const v = s.alloc[k];
+    if (v > 0 && tMap[tid] !== undefined && cMap[cid] !== undefined) {
+      a.push([tMap[tid], cMap[cid], v]);
+    }
+  });
+  const pi = [];
+  Object.keys(s.pins || {}).forEach(k => {
+    const [cid, d, p] = k.split("|");
+    const tid = s.pins[k];
+    if (cMap[cid] !== undefined && tMap[tid] !== undefined) {
+      pi.push([cMap[cid], +d, +p, tMap[tid]]);
+    }
+  });
+  const x = [];
+  Object.keys(s.exceptions || {}).forEach(k => {
+    const [tid, cid] = k.split("|");
+    if (tMap[tid] !== undefined && cMap[cid] !== undefined) {
+      x.push([tMap[tid], cMap[cid], s.exceptions[k]]);
+    }
+  });
+  return {
+    d: s.days,
+    p: s.periods,
+    t: s.teachers.map(t => [t.name, t.code, t.subject, t.maxPerDay]),
+    c: s.classes.map(c => [c.name, c.perDay, c.maxTeacherDay, c.fixed && c.fixed.some(f => f !== null) ? c.fixed : null]),
+    a,
+    pi: pi.length ? pi : undefined,
+    x: x.length ? x : undefined,
+    o: s.opts ? [
+      s.opts.minTeacherDay,
+      s.opts.maxRun,
+      s.opts.noP123 ? 1 : 0,
+      s.opts.fairAll ? 1 : 0,
+      s.opts.effort
+    ] : undefined
+  };
+}
+
+function expandState(obj) {
+  if (!obj) return null;
+  if (Array.isArray(obj.classes) && Array.isArray(obj.teachers) && obj.classes[0] && typeof obj.classes[0] === "object" && obj.classes[0].id) {
+    return obj;
+  }
+  const teachers = (obj.t || []).map(row => ({
+    id: uid("t"),
+    name: row[0],
+    code: row[1] || "",
+    subject: row[2] || "",
+    maxPerDay: row[3] !== undefined ? row[3] : 4
+  }));
+  const classes = (obj.c || []).map(row => ({
+    id: uid("c"),
+    name: row[0],
+    perDay: row[1],
+    maxTeacherDay: row[2] !== undefined ? row[2] : 2,
+    fixed: row[3] || Array.from({ length: (obj.d || []).length || 5 }, () => null)
+  }));
+  const alloc = {};
+  (obj.a || []).forEach(([ti, ci, hrs]) => {
+    if (teachers[ti] && classes[ci]) {
+      alloc[teachers[ti].id + "|" + classes[ci].id] = hrs;
+    }
+  });
+  const pins = {};
+  (obj.pi || []).forEach(([ci, d, p, ti]) => {
+    if (classes[ci] && teachers[ti]) {
+      pins[classes[ci].id + "|" + d + "|" + p] = teachers[ti].id;
+    }
+  });
+  const exceptions = {};
+  (obj.x || []).forEach(([ti, ci, lim]) => {
+    if (teachers[ti] && classes[ci]) {
+      exceptions[teachers[ti].id + "|" + classes[ci].id] = lim;
+    }
+  });
+  const opts = exampleState().opts;
+  if (obj.o && Array.isArray(obj.o)) {
+    if (obj.o[0] !== undefined) opts.minTeacherDay = obj.o[0];
+    if (obj.o[1] !== undefined) opts.maxRun = obj.o[1];
+    if (obj.o[2] !== undefined) opts.noP123 = !!obj.o[2];
+    if (obj.o[3] !== undefined) opts.fairAll = !!obj.o[3];
+    if (obj.o[4] !== undefined) opts.effort = obj.o[4];
+  }
+  return {
+    days: obj.d || ["Mon", "Tue", "Wed", "Thu", "Fri"],
+    periods: obj.p || 5,
+    classes,
+    teachers,
+    alloc,
+    pins,
+    exceptions,
+    opts
+  };
+}
+
+async function compressToUrlSafe(str) {
+  if (typeof CompressionStream !== "undefined") {
+    try {
+      const stream = new Blob([new TextEncoder().encode(str)]).stream().pipeThrough(new CompressionStream("deflate-raw"));
+      const buffer = await new Response(stream).arrayBuffer();
+      const bytes = new Uint8Array(buffer);
+      let binary = "";
+      for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+      return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    } catch (e) {}
+  }
+  return btoa(unescape(encodeURIComponent(str))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+async function decompressFromUrlSafe(b64) {
+  let std = b64.replace(/-/g, "+").replace(/_/g, "/");
+  while (std.length % 4) std += "=";
+  const binary = atob(std);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+
+  if (typeof DecompressionStream !== "undefined") {
+    try {
+      const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+      return await new Response(stream).text();
+    } catch (e) {}
+  }
+  return decodeURIComponent(escape(binary));
+}
+
 function encodeState(obj) {
   const json = JSON.stringify(obj);
   try {
@@ -851,29 +986,39 @@ async function boot() {
   let loadedFromShare = false;
   if (typeof window !== "undefined" && window.location && window.location.hash) {
     const hash = window.location.hash;
-    if (hash.startsWith("#setup=")) {
+    let rawObj = null;
+    if (hash.startsWith("#s=")) {
+      try {
+        const text = await decompressFromUrlSafe(hash.slice(3));
+        const parsed = JSON.parse(text);
+        rawObj = expandState(parsed);
+      } catch (e) {
+        console.error("Compact share decode error:", e);
+      }
+    } else if (hash.startsWith("#setup=")) {
       try {
         const b64 = hash.slice(7);
-        const obj = decodeState(b64);
-        if (adopt(obj)) {
-          loadedFromShare = true;
-          const timeStr = formatSaveTime();
-          try {
-            localStorage.setItem(LS_KEY, JSON.stringify(S));
-            localStorage.setItem(LS_TIME_KEY, timeStr);
-          } catch (e) {}
-          stamp("Loaded shared setup");
-          showToast("Loaded timetable setup from shared link!", "success");
-          try {
-            if (window.history && window.history.replaceState) {
-              window.history.replaceState(null, "", window.location.pathname + window.location.search);
-            }
-          } catch (e) {}
-        }
+        rawObj = decodeState(b64);
       } catch (e) {
-        console.error("Shared link decode error:", e);
-        showToast("Could not load shared setup: invalid format", "warn");
+        console.error("Legacy share decode error:", e);
       }
+    }
+    if (rawObj && adopt(rawObj)) {
+      loadedFromShare = true;
+      const timeStr = formatSaveTime();
+      try {
+        localStorage.setItem(LS_KEY, JSON.stringify(S));
+        localStorage.setItem(LS_TIME_KEY, timeStr);
+      } catch (e) {}
+      stamp("Loaded shared setup");
+      showToast("Loaded timetable setup from shared link!", "success");
+      try {
+        if (window.history && window.history.replaceState) {
+          window.history.replaceState(null, "", window.location.pathname + window.location.search);
+        }
+      } catch (e) {}
+    } else if (hash.startsWith("#s=") || hash.startsWith("#setup=")) {
+      showToast("Could not load shared setup: invalid format", "warn");
     }
   }
 
@@ -1652,22 +1797,33 @@ if (el("deptModal")) {
   });
 }
 
-function getShareUrl() {
+async function getShareUrl() {
   if (typeof window === "undefined" || !window.location) return "";
   const base = window.location.origin + window.location.pathname;
-  return base + "#setup=" + encodeState(S);
+  try {
+    const comp = compactState(S);
+    const b64 = await compressToUrlSafe(JSON.stringify(comp));
+    return base + "#s=" + b64;
+  } catch (e) {
+    return base + "#setup=" + encodeState(S);
+  }
 }
 
-function openShareModal() {
+async function openShareModal() {
   const modal = el("shareModal");
   if (!modal) return;
-  const url = getShareUrl();
   const inp = el("shareUrlInput");
-  if (inp) inp.value = url;
+  if (inp) inp.value = "Generating short link…";
   const feedback = el("shareCopyFeedback");
   if (feedback) feedback.textContent = "";
   const copyBtn = el("copyShareBtn");
   if (copyBtn) copyBtn.textContent = "Copy Link";
+
+  if (typeof modal.showModal === "function") modal.showModal();
+  else modal.setAttribute("open", "true");
+
+  const url = await getShareUrl();
+  if (inp) inp.value = url;
 
   if (navigator && navigator.clipboard && navigator.clipboard.writeText) {
     navigator.clipboard.writeText(url).then(() => {
@@ -1675,9 +1831,6 @@ function openShareModal() {
       if (copyBtn) copyBtn.textContent = "Copied!";
     }).catch(() => {});
   }
-
-  if (typeof modal.showModal === "function") modal.showModal();
-  else modal.setAttribute("open", "true");
 }
 
 function closeShareModal() {
@@ -1775,6 +1928,14 @@ if (el("importFileInput")) el("importFileInput").onchange = handleFileImport;
 if (el("shareModalClose")) el("shareModalClose").onclick = closeShareModal;
 if (el("shareModalDone")) el("shareModalDone").onclick = closeShareModal;
 if (el("copyShareBtn")) el("copyShareBtn").onclick = copyShareUrl;
+if (el("makeTinyBtn")) {
+  el("makeTinyBtn").onclick = () => {
+    const url = el("shareUrlInput") ? el("shareUrlInput").value : "";
+    if (url && !url.startsWith("Generating")) {
+      window.open("https://tinyurl.com/create.php?url=" + encodeURIComponent(url), "_blank");
+    }
+  };
+}
 if (el("shareModal")) {
   el("shareModal").addEventListener("click", e => {
     if (e.target === el("shareModal")) closeShareModal();
@@ -1842,6 +2003,14 @@ function buildCsvText() {
     lines.push("");
   }
   return lines.join("\n");
+}
+
+function hslToRgb(h, s, l) {
+  s /= 100; l /= 100;
+  const k = n => (n + h / 30) % 12;
+  const a = s * Math.min(l, 1 - l);
+  const f = n => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+  return [Math.round(255 * f(0)), Math.round(255 * f(8)), Math.round(255 * f(4))];
 }
 
 function buildPdfBlob() {
@@ -1923,7 +2092,13 @@ function buildPdfBlob() {
       for (let p = 0; p < R.P; p++) {
         const cx = marginX + dayColW + p * colW;
         const info = cellFn(ri, p) || {};
-        if (info.fill) { doc.setFillColor(...info.fill); doc.rect(cx, y, colW, rowH, "F"); }
+        if (info.fill) {
+          doc.setFillColor(...info.fill);
+          doc.rect(cx, y, colW, rowH, "F");
+        } else {
+          doc.setFillColor(236, 238, 233);
+          doc.rect(cx, y, colW, rowH, "F");
+        }
         doc.setDrawColor(info.clash ? 200 : 210, info.clash ? 60 : 210, info.clash ? 60 : 210);
         doc.setLineWidth(info.clash ? 1.1 : 0.6);
         doc.rect(cx, y, colW, rowH);
@@ -1933,15 +2108,19 @@ function buildPdfBlob() {
         }
         doc.setLineWidth(0.6); doc.setDrawColor(210);
         if (info.main) {
-          doc.setFont("helvetica", "bold"); doc.setFontSize(9); doc.setTextColor(30);
+          doc.setFont("helvetica", "bold"); doc.setFontSize(9);
+          if (info.textColor) doc.setTextColor(...info.textColor);
+          else doc.setTextColor(30);
           const mainLines = doc.splitTextToSize(info.main, colW - 8);
           doc.text(mainLines, cx + colW / 2, y + (info.sub ? rowH / 2 - 3 : rowH / 2 + 3), { align: "center" });
           if (info.sub) {
-            doc.setFont("helvetica", "normal"); doc.setFontSize(7.5); doc.setTextColor(100);
+            doc.setFont("helvetica", "normal"); doc.setFontSize(7.5);
+            if (info.subColor) doc.setTextColor(...info.subColor);
+            else doc.setTextColor(100);
             doc.text(doc.splitTextToSize(info.sub, colW - 8), cx + colW / 2, y + rowH / 2 + 11, { align: "center" });
           }
         } else {
-          doc.setFont("helvetica", "normal"); doc.setFontSize(8); doc.setTextColor(170);
+          doc.setFont("helvetica", "normal"); doc.setFontSize(8); doc.setTextColor(150);
           doc.text("free", cx + colW / 2, y + rowH / 2 + 3, { align: "center" });
         }
       }
@@ -1959,8 +2138,11 @@ function buildPdfBlob() {
         if (t < 0) return null;
         const T = R.teachers[t];
         const main = T.subject || label(T), sub = T.subject ? label(T) : null;
+        const fill = hslToRgb(T.hue, 42, 92);
+        const textColor = hslToRgb(T.hue, 55, 26);
+        const subColor = hslToRgb(T.hue, 50, 38);
         return {
-          main, sub, fill: [242, 243, 240],
+          main, sub, fill, textColor, subColor,
           clash: clashSet.has(t + ":" + ri + ":" + p), pinned: !!(cid && S.pins[pinKey(cid, ri, p)])
         };
       }, ci === 0);
@@ -1975,8 +2157,10 @@ function buildPdfBlob() {
         for (let ci = 0; ci < R.C; ci++) if (R.grid[R.idx(ci, ri, p)] === ti) { found = ci; break; }
         if (found < 0) return null;
         const cid = S.classes[found] ? S.classes[found].id : null;
+        const fill = hslToRgb(t.hue, 42, 92);
+        const textColor = hslToRgb(t.hue, 55, 26);
         return {
-          main: R.classes[found].name, fill: [242, 243, 240],
+          main: R.classes[found].name, fill, textColor,
           clash: clashSet.has(ti + ":" + ri + ":" + p), pinned: !!(cid && S.pins[pinKey(cid, ri, p)])
         };
       }, ti === 0);
@@ -1989,8 +2173,11 @@ function buildPdfBlob() {
         for (let ci = 0; ci < R.C; ci++) if (R.grid[R.idx(ci, d, p)] === ri) { found = ci; break; }
         if (found < 0) return null;
         const cid = S.classes[found] ? S.classes[found].id : null;
+        const t = R.teachers[ri];
+        const fill = hslToRgb(t.hue, 42, 92);
+        const textColor = hslToRgb(t.hue, 55, 26);
         return {
-          main: R.classes[found].name, fill: [242, 243, 240],
+          main: R.classes[found].name, fill, textColor,
           clash: clashSet.has(ri + ":" + d + ":" + p), pinned: !!(cid && S.pins[pinKey(cid, d, p)])
         };
       }, d === 0);
