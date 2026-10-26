@@ -317,6 +317,15 @@ dialog::backdrop{background:rgba(0,0,0,0.5);backdrop-filter:blur(2px)}
   </div>
 
   <div class="card">
+    <h2>Teachers</h2>
+    <p class="hint">Short form is a 3–8 letter code (auto-filled, editable) used on compact timetables and the master schedule. The subject shows up in each timetable cell. Max per day caps how many periods a teacher can be given on a single day. Assigned total hours can be edited directly.</p>
+    <div class="scroll"><table id="teacherTable"></table></div>
+    <div class="row" style="margin-top:12px">
+      <button class="btn ghost" id="addTeacher">Add teacher</button>
+    </div>
+  </div>
+
+  <div class="card">
     <h2>The week</h2>
     <p class="hint">Days in the week and the most periods any class can have in one day. Periods are the same time slots for every class, so a teacher is never booked in two places at once.</p>
     <div class="row">
@@ -344,15 +353,6 @@ dialog::backdrop{background:rgba(0,0,0,0.5);backdrop-filter:blur(2px)}
     <p class="hint">Override the daily limit for a specific teacher in a specific class (e.g. allow a teacher with 8 hours in a class to take up to 2 hours per day, while keeping others in that class at max 1).</p>
     <div class="row" id="excAdd" style="gap:8px;align-items:center;flex-wrap:wrap"></div>
     <div id="excList" style="margin-top:12px"></div>
-  </div>
-
-  <div class="card">
-    <h2>Teachers</h2>
-    <p class="hint">Short form is a 3–4 letter code (auto-filled, editable) used on compact timetables and the master schedule. The subject shows up in each timetable cell. Max per day caps how many periods a teacher can be given on a single day.</p>
-    <div class="scroll"><table id="teacherTable"></table></div>
-    <div class="row" style="margin-top:12px">
-      <button class="btn ghost" id="addTeacher">Add teacher</button>
-    </div>
   </div>
 
   <div class="card">
@@ -879,16 +879,51 @@ function picker(c, ci) {
   return h.join("");
 }
 
+function setTeacherTotalHours(teacherIndex, newTotal) {
+  const t = S.teachers[teacherIndex];
+  if (!t || !S.classes.length) return;
+  const target = Math.max(0, +newTotal || 0);
+  let cur = teacherLoad(t);
+  
+  if (target > cur) {
+    let diff = target - cur;
+    let ci = 0;
+    while (diff > 0 && S.classes.length > 0) {
+      const c = S.classes[ci % S.classes.length];
+      const k = key(t.id, c.id);
+      S.alloc[k] = (S.alloc[k] || 0) + 1;
+      diff--;
+      ci++;
+    }
+  } else if (target < cur) {
+    let diff = cur - target;
+    let ci = S.classes.length - 1;
+    let loops = 0;
+    while (diff > 0 && loops < 500) {
+      loops++;
+      const c = S.classes[ci];
+      const k = key(t.id, c.id);
+      if (S.alloc[k] > 0) {
+        S.alloc[k]--;
+        diff--;
+        if (S.alloc[k] === 0) delete S.alloc[k];
+      }
+      ci--;
+      if (ci < 0) ci = S.classes.length - 1;
+    }
+  }
+}
+
 function renderTeachers() {
   const h = [];
-  h.push("<thead><tr><th style='min-width:130px'>Teacher</th><th style='width:95px'>Short form</th><th style='min-width:130px'>Subject</th><th class='num'>Max/day</th><th class='num'>Assigned</th><th style='width:34px'></th></tr></thead><tbody>");
+  h.push("<thead><tr><th style='min-width:130px'>Teacher</th><th style='width:95px'>Short form</th><th style='min-width:130px'>Subject</th><th class='num'>Max/day</th><th class='num' style='min-width:95px'>Assigned hrs</th><th style='width:34px'></th></tr></thead><tbody>");
   S.teachers.forEach((t, i) => {
     h.push("<tr>");
     h.push(`<td class="pad"><input type="text" data-t="${i}" data-f="name" value="${esc(t.name)}"></td>`);
     h.push(`<td class="pad"><input type="text" data-t="${i}" data-f="code" maxlength="8" style="text-transform:uppercase;text-align:center" value="${esc(t.code || "")}"></td>`);
     h.push(`<td class="pad"><input type="text" data-t="${i}" data-f="subject" value="${esc(t.subject || "")}" placeholder="optional"></td>`);
     h.push(`<td class="pad num"><input type="number" min="1" max="${S.periods}" data-t="${i}" data-f="maxPerDay" value="${t.maxPerDay}"></td>`);
-    h.push(`<td class="total">${teacherLoad(t)}</td>`);
+    h.push(`<td class="pad num"><input type="number" min="0" max="60" data-t="${i}" data-f="assignedHours" value="${teacherLoad(t)}" title="Total assigned weekly hours for this teacher (editable)"></td>`);
     h.push(`<td style="text-align:center"><button class="del" data-del-t="${i}" title="Remove teacher">&times;</button></td>`);
     h.push("</tr>");
   });
@@ -1313,12 +1348,25 @@ el("addClass").onclick = () => {
 el("teacherTable").addEventListener("input", e => {
   const i = +e.target.dataset.t; if (isNaN(i)) return;
   const t = S.teachers[i], f = e.target.dataset.f;
-  if (f === "maxPerDay") t[f] = Math.max(1, Math.min(S.periods, +e.target.value || 1));
-  else t[f] = e.target.value;
+  if (f === "maxPerDay") {
+    t[f] = Math.max(1, Math.min(S.periods, +e.target.value || 1));
+  } else if (f === "assignedHours") {
+    setTeacherTotalHours(i, e.target.value);
+    renderAlloc();
+  } else {
+    t[f] = e.target.value;
+  }
   save();
 });
 el("teacherTable").addEventListener("change", e => {
-  if (e.target.dataset.f === "code") { normalise(); renderTeachers(); save(); }
+  if (e.target.dataset.f === "code") {
+    normalise(); renderTeachers(); save();
+  } else if (e.target.dataset.f === "assignedHours") {
+    renderTeachers();
+    renderAlloc();
+    renderSummary();
+    save();
+  }
 });
 el("teacherTable").addEventListener("click", e => {
   const i = e.target.dataset.delT; if (i === undefined) return;
