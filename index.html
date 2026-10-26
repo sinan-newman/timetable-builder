@@ -1,0 +1,1907 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Department timetable builder</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<style>
+:root{
+  --paper:#f4f5f2;
+  --card:#ffffff;
+  --ink:#16222e;
+  --ink-soft:#5a6a78;
+  --line:#d8ddd8;
+  --line-strong:#b3bbb4;
+  --accent:#1f6b63;
+  --accent-ink:#ffffff;
+  --accent-soft:#e2efec;
+  --warn:#8a5200;
+  --warn-bg:#fdf1dc;
+  --bad:#9b1c1c;
+  --bad-bg:#fbe7e7;
+  --good:#1f6b63;
+  --free:#eceee9;
+  --shadow:0 1px 0 rgba(22,34,46,.06);
+  --slot-l:92%; --slot-s:42%; --slot-tl:26%; --slot-ts:55%;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --paper:#11171c;
+    --card:#18212a;
+    --ink:#e6ecef;
+    --ink-soft:#9aa9b4;
+    --line:#2b3841;
+    --line-strong:#3d4d58;
+    --accent:#4fb3a5;
+    --accent-ink:#0d1418;
+    --accent-soft:#1d3230;
+    --warn:#f0bd6a;
+    --warn-bg:#2e2513;
+    --bad:#f08f8f;
+    --bad-bg:#331c1c;
+    --good:#4fb3a5;
+    --free:#1e262d;
+    --shadow:none;
+    --slot-l:26%; --slot-s:30%; --slot-tl:82%; --slot-ts:55%;
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#11171c;
+  --card:#18212a;
+  --ink:#e6ecef;
+  --ink-soft:#9aa9b4;
+  --line:#2b3841;
+  --line-strong:#3d4d58;
+  --accent:#4fb3a5;
+  --accent-ink:#0d1418;
+  --accent-soft:#1d3230;
+  --warn:#f0bd6a;
+  --warn-bg:#2e2513;
+  --bad:#f08f8f;
+  --bad-bg:#331c1c;
+  --good:#4fb3a5;
+  --free:#1e262d;
+  --shadow:none;
+  --slot-l:26%; --slot-s:30%; --slot-tl:82%; --slot-ts:55%;
+}
+
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:var(--paper);
+  color:var(--ink);
+  font-family:ui-sans-serif,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  font-size:15px;
+  line-height:1.5;
+  -webkit-text-size-adjust:100%;
+  font-variant-numeric:tabular-nums;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:20px 16px 72px}
+
+header.top{
+  display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;justify-content:space-between;
+  border-bottom:2px solid var(--ink);padding-bottom:12px;margin-bottom:18px;
+}
+h1{font-size:1.5rem;line-height:1.15;margin:0;letter-spacing:-.01em;font-weight:650}
+header.top p{margin:4px 0 0;color:var(--ink-soft);font-size:.9rem;max-width:54ch}
+.saved{font-size:.78rem;color:var(--ink-soft);white-space:nowrap}
+
+nav.tabs{display:flex;gap:2px;flex-wrap:wrap;margin-bottom:20px}
+nav.tabs button{
+  font:inherit;font-size:.9rem;font-weight:550;color:var(--ink-soft);
+  background:transparent;border:1px solid transparent;border-radius:7px 7px 0 0;
+  padding:8px 14px;cursor:pointer;border-bottom:2px solid var(--line);
+}
+nav.tabs button[aria-selected="true"]{color:var(--ink);border-color:var(--line) var(--line) var(--accent);background:var(--card);border-bottom-width:2px}
+nav.tabs button:focus-visible,.btn:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+section.panel{display:none}
+section.panel.on{display:block}
+
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:18px;box-shadow:var(--shadow)}
+.card > h2{font-size:1rem;margin:0 0 3px;font-weight:650}
+.card > h2 + .hint{margin-top:0}
+.hint{color:var(--ink-soft);font-size:.85rem;margin:0 0 14px;max-width:70ch}
+
+.btn{
+  font:inherit;font-size:.88rem;font-weight:550;cursor:pointer;
+  background:var(--card);color:var(--ink);border:1px solid var(--line-strong);
+  border-radius:7px;padding:7px 13px;
+}
+.btn:hover{border-color:var(--ink-soft)}
+.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.btn.primary:disabled{opacity:.5;cursor:not-allowed}
+.btn.small{padding:3px 9px;font-size:.8rem}
+.btn.ghost{border-style:dashed}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.row.end{justify-content:flex-end}
+
+input[type=text],input[type=number],select{
+  font:inherit;font-size:.88rem;color:var(--ink);background:var(--paper);
+  border:1px solid var(--line);border-radius:6px;padding:5px 8px;width:100%;
+}
+input[type=number]{text-align:center;padding:5px 2px}
+input[type=number]::-webkit-outer-spin-button,input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+input[type=number]{-moz-appearance:textfield}
+label.inline{display:flex;align-items:center;gap:7px;font-size:.85rem;color:var(--ink-soft);white-space:nowrap}
+label.inline input[type=number]{width:64px}
+label.inline input[type=checkbox]{accent-color:var(--accent);width:15px;height:15px}
+
+.scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+table{border-collapse:collapse;width:100%;font-size:.86rem}
+th,td{border:1px solid var(--line);padding:5px 7px;text-align:left;vertical-align:middle}
+thead th{background:var(--paper);font-weight:600;font-size:.78rem;color:var(--ink-soft);white-space:nowrap}
+tbody th{font-weight:550;white-space:nowrap}
+td.num,th.num{text-align:center;width:52px}
+td.pad{padding:2px}
+.total{font-weight:650;text-align:center;white-space:nowrap}
+.total.ok{color:var(--good)}
+.total.off{color:var(--bad)}
+.del{color:var(--ink-soft);background:none;border:none;cursor:pointer;font:inherit;font-size:1rem;line-height:1;padding:2px 6px;border-radius:5px}
+.del:hover{color:var(--bad);background:var(--bad-bg)}
+
+table.pick{width:auto;min-width:320px}
+table.pick th{background:transparent;border:none;font-size:.75rem;padding:3px 9px;text-align:center}
+table.pick th:first-child{text-align:left;color:var(--ink);font-weight:600;font-size:.82rem}
+table.pick td{border:none;text-align:center;padding:3px 9px}
+table.pick input[type=checkbox]{accent-color:var(--accent);width:16px;height:16px;cursor:pointer}
+table.pick input[type=checkbox]:disabled{cursor:not-allowed;opacity:.35}
+
+/* --- scheduling rules --- */
+.rule-group{border-top:1px solid var(--line);padding:16px 0}
+.rule-group:first-of-type{border-top:none;padding-top:6px}
+.rule-group-head{display:flex;align-items:flex-start;gap:9px;margin-bottom:12px}
+.rule-ic{font-size:1.05rem;line-height:1.3;flex:none}
+.rule-group-head h3{margin:0;font-size:.92rem;font-weight:650}
+.rule-group-sub{font-size:.78rem;color:var(--ink-soft)}
+.hard-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.hard-list li{font-size:.86rem;color:var(--ink-soft);display:flex;gap:8px;align-items:flex-start}
+.hard-list .tick{color:var(--good);font-weight:700;flex:none}
+.rule-row{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:9px 0;flex-wrap:wrap}
+.rule-row label{font-size:.87rem;font-weight:550;display:inline-flex;align-items:center;gap:5px;flex:1 1 260px}
+.rule-row select{width:auto;min-width:220px;max-width:100%}
+.toggle-row label{font-weight:500}
+
+.info-ic{
+  position:relative;flex:none;width:16px;height:16px;border-radius:50%;
+  border:1px solid var(--line-strong);background:transparent;color:var(--ink-soft);
+  font-size:.66rem;line-height:14px;cursor:help;padding:0;font-family:inherit;
+}
+.info-ic:hover::after,.info-ic:focus-visible::after{opacity:1;visibility:visible;transform:translateY(0)}
+.info-ic::after{
+  content:attr(data-tip);position:absolute;left:50%;bottom:calc(100% + 8px);
+  transform:translate(-50%,4px);width:230px;max-width:60vw;
+  background:var(--ink);color:var(--paper);font-size:.74rem;font-weight:400;line-height:1.35;
+  padding:8px 10px;border-radius:7px;opacity:0;visibility:hidden;transition:opacity .12s,transform .12s;
+  z-index:5;pointer-events:none;text-align:left;
+}
+:root[data-theme="dark"] .info-ic::after{background:var(--card);color:var(--ink);border:1px solid var(--line)}
+@media (prefers-color-scheme:dark){ :root:not([data-theme="light"]) .info-ic::after{background:var(--card);color:var(--ink);border:1px solid var(--line)} }
+
+.stepper{display:inline-flex;align-items:stretch;border:1px solid var(--line-strong);border-radius:7px;overflow:hidden;flex:none}
+.stepper input[type=number]{border:none;border-left:1px solid var(--line-strong);border-right:1px solid var(--line-strong);border-radius:0;width:48px}
+.step-btn{font:inherit;font-size:.95rem;font-weight:600;width:28px;background:var(--paper);color:var(--ink);border:none;cursor:pointer;line-height:1}
+.step-btn:hover{background:var(--accent-soft);color:var(--good)}
+
+.switch{position:relative;display:inline-block;width:38px;height:22px;flex:none;cursor:pointer}
+.switch input{position:absolute;opacity:0;width:100%;height:100%;margin:0;cursor:pointer}
+.switch-track{position:absolute;inset:0;background:var(--line-strong);border-radius:999px;transition:background .12s}
+.switch-track::after{content:"";position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:var(--card);transition:transform .12s;box-shadow:0 1px 2px rgba(0,0,0,.25)}
+.switch input:checked + .switch-track{background:var(--accent)}
+.switch input:checked + .switch-track::after{transform:translateX(16px)}
+.switch input:focus-visible + .switch-track{outline:2px solid var(--accent);outline-offset:2px}
+
+details.advanced{margin-top:6px}
+details.advanced summary{cursor:pointer;font-size:.84rem;font-weight:550;color:var(--ink-soft);padding:6px 0;list-style:none}
+details.advanced summary::-webkit-details-marker{display:none}
+details.advanced summary::before{content:"▸ ";display:inline-block;transition:transform .1s}
+details.advanced[open] summary::before{content:"▾ "}
+details.advanced summary:hover{color:var(--ink)}
+
+.summary-card{background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:12px 14px;margin-top:16px}
+.summary-card h4{margin:0 0 8px;font-size:.82rem;font-weight:650;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.02em}
+.summary-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px 16px}
+.summary-item{display:flex;flex-direction:column;gap:1px}
+.summary-item .n{font-size:1.15rem;font-weight:650;line-height:1.1}
+.summary-item .l{font-size:.72rem;color:var(--ink-soft)}
+
+.conflict-list{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:5px}
+.conflict-list li{font-size:.83rem;padding-left:14px;position:relative}
+.conflict-list li::before{content:"•";position:absolute;left:0}
+.conflict-more{font-size:.8rem;color:var(--ink-soft);margin-top:4px}
+
+.note{border-radius:8px;padding:10px 12px;font-size:.85rem;margin:0 0 14px}
+.note.warn{background:var(--warn-bg);color:var(--warn);border:1px solid color-mix(in srgb,var(--warn) 30%,transparent)}
+.note.bad{background:var(--bad-bg);color:var(--bad);border:1px solid color-mix(in srgb,var(--bad) 30%,transparent)}
+.note.ok{background:var(--accent-soft);color:var(--good);border:1px solid color-mix(in srgb,var(--good) 30%,transparent)}
+.note ul{margin:6px 0 0;padding-left:18px}
+
+.grid-tt{border-collapse:separate;border-spacing:3px;width:100%;table-layout:fixed;min-width:520px}
+.grid-tt th{border:none;background:transparent;font-size:.75rem;color:var(--ink-soft);padding:2px 4px;text-align:center}
+.grid-tt th.day{text-align:left;width:74px;font-size:.8rem;color:var(--ink);font-weight:600}
+.grid-tt td{border:none;border-radius:6px;padding:7px 6px;height:52px;text-align:center;background:var(--free)}
+.grid-tt td.slot{background:hsl(var(--h) var(--slot-s) var(--slot-l));color:hsl(var(--h) var(--slot-ts) var(--slot-tl))}
+.grid-tt td.clash{outline:2px solid var(--bad);outline-offset:-2px}
+.grid-tt td.pick-cell{cursor:pointer}
+.grid-tt td.pinned{box-shadow:inset 0 0 0 2px var(--accent);position:relative}
+.grid-tt td.pinned::after{content:"lock";position:absolute;top:2px;right:4px;font-size:.55rem;letter-spacing:.02em;opacity:.75}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{display:inline-flex;align-items:center;gap:2px;background:var(--accent-soft);color:var(--good);border-radius:20px;padding:3px 4px 3px 11px;font-size:.8rem;font-weight:550}
+.chip .del{font-size:.95rem;padding:0 5px}
+.slot-main{font-weight:600;font-size:.83rem;line-height:1.2;overflow-wrap:anywhere}
+.slot-sub{font-size:.72rem;opacity:.8;line-height:1.2;overflow-wrap:anywhere}
+.free-mark{color:var(--ink-soft);font-size:.75rem}
+
+.tt-block{margin-bottom:26px;break-inside:avoid}
+.tt-head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:8px;border-bottom:1px solid var(--line);padding-bottom:5px}
+.tt-head h3{margin:0;font-size:1rem;font-weight:650}
+.tt-head span{font-size:.8rem;color:var(--ink-soft)}
+
+.balance-card{margin:14px 0 18px;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:12px 14px}
+.balance-head{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:8px;flex-wrap:wrap;gap:8px}
+.balance-head h4{margin:0;font-size:.9rem;font-weight:650}
+.balance-head span{font-size:.8rem;color:var(--ink-soft)}
+.balance-tt{border-collapse:collapse;width:100%;font-size:.82rem}
+.balance-tt th{padding:4px 6px;text-align:center;color:var(--ink-soft);border-bottom:1px solid var(--line);font-size:.75rem}
+.balance-tt td{padding:5px 6px;text-align:center;border-bottom:1px solid var(--line)}
+.balance-tt td.out-band{background:var(--warn-bg);color:var(--warn);font-weight:700;border-radius:4px}
+
+.bar{height:6px;background:var(--line);border-radius:3px;overflow:hidden;margin:10px 0 4px}
+.bar > i{display:block;height:100%;background:var(--accent);width:0;transition:width .12s linear}
+.progress-text{font-size:.82rem;color:var(--ink-soft)}
+.seg{display:inline-flex;border:1px solid var(--line-strong);border-radius:7px;overflow:hidden}
+.seg button{font:inherit;font-size:.85rem;padding:6px 14px;border:none;background:var(--card);color:var(--ink-soft);cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink)}
+.empty{color:var(--ink-soft);font-size:.9rem;text-align:center;padding:36px 12px;border:1px dashed var(--line-strong);border-radius:10px}
+
+@media (max-width:640px){
+  .wrap{padding:16px 10px 60px}
+  h1{font-size:1.25rem}
+  .card{padding:12px}
+}
+@media print{
+  @page{ size:landscape; margin:10mm; }
+  body{background:#fff}
+  nav.tabs,.noprint,header.top .saved{display:none !important}
+  .wrap{max-width:none;padding:0}
+  .card{border:none;padding:0;box-shadow:none;margin-bottom:14px}
+  #panel-result{display:block !important}
+  .tt-block{page-break-inside:avoid;break-inside:avoid}
+  .grid-tt{min-width:0}
+  .grid-tt td{border:1px solid #bbb !important;background:#fff !important;color:#000 !important}
+  .grid-tt td.slot{background:#f2f2f2 !important}
+  .grid-tt td.pinned::after{color:#000}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none !important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="top">
+  <div>
+    <h1>Department timetable builder</h1>
+    <p>Set up your classes and teachers, enter how many hours each teacher takes in each class, and generate a clash-free timetable.</p>
+  </div>
+  <div class="saved" id="savedMsg"></div>
+</header>
+
+<nav class="tabs" role="tablist">
+  <button role="tab" aria-selected="true" data-tab="setup">1. Classes &amp; teachers</button>
+  <button role="tab" aria-selected="false" data-tab="hours">2. Teaching hours</button>
+  <button role="tab" aria-selected="false" data-tab="result">3. Timetable</button>
+</nav>
+
+<!-- ============ SETUP ============ -->
+<section class="panel on" id="panel-setup">
+
+  <div class="card">
+    <h2>The week</h2>
+    <p class="hint">Days in the week and the most periods any class can have in one day. Periods are the same time slots for every class, so a teacher is never booked in two places at once.</p>
+    <div class="row">
+      <label class="inline">Working days
+        <input type="number" id="nDays" min="1" max="7" step="1">
+      </label>
+      <label class="inline">Periods per day
+        <input type="number" id="nPeriods" min="1" max="12" step="1">
+      </label>
+      <input type="text" id="dayNames" style="flex:1;min-width:230px" placeholder="Mon, Tue, Wed, Thu, Fri">
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Classes</h2>
+    <p class="hint">Enter how many hours each class has on each day — the row total is its weekly hours. Use <strong>Max/t/day</strong> to strictly limit how many hours any single teacher can take in this class per day. For a class that doesn't run all day, use <strong>Choose</strong> to pin the exact periods it meets.</p>
+    <div class="scroll"><table id="classTable"></table></div>
+    <div class="row" style="margin-top:12px">
+      <button class="btn ghost" id="addClass">Add class</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Teacher exceptions in classes</h2>
+    <p class="hint">Override the daily limit for a specific teacher in a specific class (e.g. allow a teacher with 8 hours in a class to take up to 2 hours per day, while keeping others in that class at max 1).</p>
+    <div class="row" id="excAdd" style="gap:8px;align-items:center;flex-wrap:wrap"></div>
+    <div id="excList" style="margin-top:12px"></div>
+  </div>
+
+  <div class="card">
+    <h2>Teachers</h2>
+    <p class="hint">Short form is a 3–4 letter code (auto-filled, editable) used on compact timetables and the master schedule. The subject shows up in each timetable cell. Max per day caps how many periods a teacher can be given on a single day.</p>
+    <div class="scroll"><table id="teacherTable"></table></div>
+    <div class="row" style="margin-top:12px">
+      <button class="btn ghost" id="addTeacher">Add teacher</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Start over</h2>
+    <p class="hint">Reset everything back to the example department: 7 classes, 8 teachers, five 5-period days.</p>
+    <button class="btn" id="resetAll">Reset to example</button>
+  </div>
+</section>
+
+<!-- ============ HOURS ============ -->
+<section class="panel" id="panel-hours">
+  <div class="card">
+    <h2>Hours per teacher, per class</h2>
+    <p class="hint">Each cell is the number of periods that teacher takes in that class every week. A column has to add up to the class's weekly hours before a timetable can be built.</p>
+    <div id="allocNotes"></div>
+    <div class="scroll"><table id="allocTable"></table></div>
+    <div class="row" style="margin-top:12px">
+      <button class="btn" id="fillSample">Fill with example hours</button>
+      <button class="btn" id="clearAlloc">Clear all hours</button>
+    </div>
+  </div>
+</section>
+
+<!-- ============ RESULT ============ -->
+<section class="panel" id="panel-result">
+  <div class="card noprint rules-card">
+    <h2>Scheduling rules</h2>
+    <p class="hint">Strict constraints and optimization preferences for timetable generation.</p>
+
+    <div class="rule-group" style="border-top:none;padding-top:6px">
+      <div class="rule-group-head">
+        <span class="rule-ic" aria-hidden="true">🔒</span>
+        <div><h3>Strict teacher rules</h3></div>
+      </div>
+      <div class="rule-row">
+        <label for="optMinDay">Strict minimum hours for a teacher in a day
+          <button type="button" class="info-ic" tabindex="0" data-tip="Strict rule: minimum teaching periods for a teacher on any scheduled day (set to 0 to disable).">ⓘ</button>
+        </label>
+        <div class="stepper"><button type="button" class="step-btn" data-target="optMinDay" data-step="-1" aria-label="Decrease">&minus;</button><input type="number" id="optMinDay" min="0" max="8" step="1"><button type="button" class="step-btn" data-target="optMinDay" data-step="1" aria-label="Increase">+</button></div>
+      </div>
+      <div class="rule-row">
+        <label for="optMaxRun">Strict maximum continuous hours for a teacher
+          <button type="button" class="info-ic" tabindex="0" data-tip="Strict rule: maximum consecutive periods a teacher can teach on any single day without a break.">ⓘ</button>
+        </label>
+        <div class="stepper"><button type="button" class="step-btn" data-target="optMaxRun" data-step="-1" aria-label="Decrease">&minus;</button><input type="number" id="optMaxRun" min="1" max="8" step="1"><button type="button" class="step-btn" data-target="optMaxRun" data-step="1" aria-label="Increase">+</button></div>
+      </div>
+      <div class="rule-row toggle-row">
+        <label for="optNoP123">No teacher can have P1, P2 and P3 classes on the same day (Strict)
+          <button type="button" class="info-ic" tabindex="0" data-tip="Strict rule: strictly prevents any teacher from being scheduled in Period 1, Period 2, and Period 3 simultaneously on the same day.">ⓘ</button>
+        </label>
+        <label class="switch"><input type="checkbox" id="optNoP123"><span class="switch-track" aria-hidden="true"></span></label>
+      </div>
+    </div>
+
+    <div class="rule-group">
+      <div class="rule-group-head">
+        <span class="rule-ic" aria-hidden="true">⚖️</span>
+        <div><h3>Fairness &amp; optimization</h3></div>
+      </div>
+      <div class="rule-row toggle-row">
+        <label for="optFairAll">Distribute all periods fairly amongst teachers
+          <button type="button" class="info-ic" tabindex="0" data-tip="Spreads each teacher's periods evenly across every period slot during the week — not just the first one — so no teacher is stuck with the same slot pattern all week.">ⓘ</button>
+        </label>
+        <label class="switch"><input type="checkbox" id="optFairAll"><span class="switch-track" aria-hidden="true"></span></label>
+      </div>
+      <div class="rule-row">
+        <label for="optEffort">Optimization level
+          <button type="button" class="info-ic" tabindex="0" data-tip="Light: fastest, fewer refinement passes. Balanced: recommended trade-off. Strong: slower, tries harder to satisfy every preference above.">ⓘ</button>
+        </label>
+        <select id="optEffort">
+          <option value="1">Light — generate faster, fewer adjustments</option>
+          <option value="2">Balanced — recommended</option>
+          <option value="3">Strong — spend more time optimizing</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="summary-card" id="summaryCard"></div>
+
+    <div class="row" style="margin-top:14px">
+      <button class="btn primary" id="genBtn">Generate timetable</button>
+      <button class="btn" id="pdfBtn">Download PDF</button>
+      <button class="btn" id="csvBtn">Download CSV</button>
+      <button class="btn" id="printBtn">Print</button>
+    </div>
+    <div class="bar" id="barWrap" style="display:none"><i id="bar"></i></div>
+    <div class="progress-text" id="progress"></div>
+  </div>
+
+  <div class="card noprint">
+    <h2>Locked hours</h2>
+    <p class="hint">Click any cell in a generated class timetable to lock that teacher into that period. Locked hours stay put when you generate again — everything else is rebuilt around them.</p>
+    <div class="row" id="pinAdd"></div>
+    <div id="pinList" style="margin-top:12px"></div>
+  </div>
+
+  <div id="resultNotes"></div>
+
+  <div class="row noprint" id="viewToggle" style="display:none;margin-bottom:16px;justify-content:space-between">
+    <div class="seg">
+      <button data-view="class" aria-pressed="true">By class</button>
+      <button data-view="teacher" aria-pressed="false">By teacher</button>
+      <button data-view="master" aria-pressed="false">Master (all teachers)</button>
+    </div>
+    <label class="inline"><input type="checkbox" id="optShort"> Use short forms</label>
+  </div>
+
+
+  <div id="output"></div>
+</section>
+
+</div>
+
+<script>
+"use strict";
+/* ---------------------------------------------------------------- state */
+const uid = p => p + Math.random().toString(36).slice(2, 8);
+
+function exampleState() {
+  const days = ["Mon", "Tue", "Wed", "Thu", "Fri"];
+  const mk = (name, perDay, maxTeacherDay = 2) => ({ id: uid("c"), name, perDay, fixed: perDay.map(() => null), compact: true, maxTeacherDay });
+  const classes = [
+    mk("S1 A", [5, 5, 5, 5, 5], 2),
+    mk("S1 B", [5, 5, 5, 5, 5], 2),
+    mk("S3 A", [5, 5, 5, 5, 5], 2),
+    mk("S5 A", [3, 3, 3, 3, 2], 2),
+    mk("Elective 1", [1, 1, 1, 1, 1], 1),
+    mk("Elective 2", [1, 1, 1, 1, 1], 1),
+    mk("Elective 3", [1, 1, 1, 1, 1], 1)
+  ];
+  const teachers = Array.from({ length: 8 }, (_, i) => ({
+    id: uid("t"), name: "Teacher " + (i + 1), code: "T" + (i + 1), subject: "", maxPerDay: 5
+  }));
+  return {
+    days, periods: 5, classes, teachers, alloc: {}, pins: {}, exceptions: {},
+    opts: {
+      maxClassPerDay: 2,
+      minTeacherDay: 1,
+      maxTeacherDay: 4,
+      maxRun: 2,
+      noP123: true,
+      fairAll: true,
+      shortForms: false,
+      effort: 2
+    }
+  };
+}
+
+let S = exampleState();
+let RESULT = null;      // {grid, days, periods, classes, teachers, clashes}
+let VIEW = "class";
+let running = false;
+
+/* ---------------------------------------------------------------- storage */
+const LS_KEY = "tt.builder.v1";
+let db = null;
+let downloadsCap = null;
+let saveTimer = null;
+
+async function ensureDownloads() {
+  if (downloadsCap) return downloadsCap;
+  if (!window.claude || !claude.use) return null;
+  try { downloadsCap = await claude.use("downloads"); } catch (e) { downloadsCap = null; }
+  return downloadsCap;
+}
+
+function stamp(msg) { document.getElementById("savedMsg").textContent = msg; }
+
+function save() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(async () => {
+    const payload = JSON.stringify(S);
+    try { localStorage.setItem(LS_KEY, payload); } catch (e) { /* storage off */ }
+    if (db) {
+      try { await db.doc("config/main").set({ payload }); stamp("Saved"); return; }
+      catch (e) { /* fall through */ }
+    }
+    stamp("Saved on this device");
+  }, 400);
+}
+
+function adopt(obj) {
+  if (!obj || !Array.isArray(obj.classes) || !Array.isArray(obj.teachers)) return false;
+  S = Object.assign(exampleState(), obj);
+  S.opts = Object.assign(exampleState().opts, obj.opts || {});
+  normalise();
+  return true;
+}
+
+async function boot() {
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    if (raw) adopt(JSON.parse(raw));
+  } catch (e) { /* ignore */ }
+  renderAll();
+  if (window.claude && claude.use) {
+    try {
+      db = await claude.use("db");
+      if (db) {
+        const snap = await db.doc("config/main").get();
+        if (snap && snap.payload) { if (adopt(JSON.parse(snap.payload))) renderAll(); stamp("Saved"); }
+      }
+    } catch (e) { db = null; }
+  }
+}
+
+/* ---------------------------------------------------------------- helpers */
+function normalise() {
+  const D = S.days.length, P = S.periods;
+  S.classes.forEach(c => {
+    c.perDay = Array.from({ length: D }, (_, d) => Math.min(P, +c.perDay[d] || 0));
+    c.maxTeacherDay = Math.max(1, Math.min(P, +c.maxTeacherDay || +S.opts.maxClassPerDay || 2));
+    const old = Array.isArray(c.fixed) ? c.fixed : [];
+    c.fixed = Array.from({ length: D }, (_, d) => {
+      const f = old[d];
+      if (!Array.isArray(f)) return null;
+      const keep = [...new Set(f.map(Number).filter(p => p >= 0 && p < P))].sort((a, b) => a - b);
+      return keep.length ? keep : null;
+    });
+    c.fixed.forEach((f, d) => { if (f) c.perDay[d] = f.length; });
+  });
+  S.teachers.forEach(t => { t.maxPerDay = Math.max(1, Math.min(P, +t.maxPerDay || P)); });
+  S.opts.maxRun = Math.max(1, Math.min(P, +S.opts.maxRun || 2));
+  const used = new Set();
+  S.teachers.forEach(t => {
+    let code = (t.code || "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 4);
+    if (!code) code = t.name.replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, 3) || "TCH";
+    let base = code, n = 1;
+    while (used.has(code)) { n++; code = (base.slice(0, 3) + n).slice(0, 4); }
+    used.add(code);
+    t.code = code;
+  });
+  S.opts.maxClassPerDay = Math.max(1, Math.min(P, +S.opts.maxClassPerDay || +S.opts.pairPerDay || 2));
+  S.opts.minTeacherDay = Math.max(0, Math.min(P, S.opts.minTeacherDay !== undefined ? +S.opts.minTeacherDay : 1));
+  S.opts.maxTeacherDay = Math.max(1, Math.min(P, +S.opts.maxTeacherDay || 4));
+  if (S.opts.noP123 === undefined) S.opts.noP123 = true;
+  if (S.opts.fairAll === undefined) S.opts.fairAll = true;
+  if (!S.pins || typeof S.pins !== "object") S.pins = {};
+  Object.keys(S.pins).forEach(k => {
+    const [cid, d, p] = k.split("|");
+    const c = S.classes.find(x => x.id === cid);
+    const okT = S.teachers.some(t => t.id === S.pins[k]);
+    const okSlot = c && +d < D && +p < P && (!c.fixed[+d] || c.fixed[+d].includes(+p));
+    if (!c || !okT || !okSlot) delete S.pins[k];
+  });
+  if (!S.exceptions || typeof S.exceptions !== "object") S.exceptions = {};
+  Object.keys(S.exceptions).forEach(k => {
+    const [tid, cid] = k.split("|");
+    const okT = S.teachers.some(t => t.id === tid);
+    const okC = S.classes.some(c => c.id === cid);
+    if (!okT || !okC) delete S.exceptions[k];
+    else S.exceptions[k] = Math.max(1, Math.min(P, +S.exceptions[k] || 1));
+  });
+}
+
+const pinKey = (cid, d, p) => cid + "|" + d + "|" + p;
+function pinsOfClass(c) {
+  return Object.keys(S.pins).filter(k => k.startsWith(c.id + "|")).map(k => {
+    const [, d, p] = k.split("|");
+    return { d: +d, p: +p, t: S.pins[k] };
+  });
+}
+
+const el = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const classHours = c => c.perDay.reduce((a, b) => a + (+b || 0), 0);
+const key = (t, c) => t + "|" + c;
+const allocOf = (t, c) => +S.alloc[key(t, c)] || 0;
+const classAllocated = c => S.teachers.reduce((a, t) => a + allocOf(t.id, c.id), 0);
+const teacherLoad = t => S.classes.reduce((a, c) => a + allocOf(t.id, c.id), 0);
+const hueFor = i => Math.round((i * 360) / Math.max(1, S.teachers.length) + 18) % 360;
+
+/* ---------------------------------------------------------------- setup UI */
+function renderWeek() {
+  el("nDays").value = S.days.length;
+  el("nPeriods").value = S.periods;
+  el("dayNames").value = S.days.join(", ");
+}
+
+let openClass = null;
+
+function renderClasses() {
+  const h = [];
+  const cols = S.days.length + 5;
+  h.push("<thead><tr><th style='min-width:130px'>Class</th>");
+  S.days.forEach(d => h.push(`<th class="num">${esc(d)}</th>`));
+  h.push("<th class='num'>Week</th><th class='num' title='Maximum hours any teacher can take in this class in one day'>Max/t/day</th><th style='width:120px'>Periods</th><th style='width:34px'></th></tr></thead><tbody>");
+  S.classes.forEach((c, i) => {
+    const anyFixed = c.fixed.some(Boolean);
+    h.push("<tr>");
+    h.push(`<td class="pad"><input type="text" data-c="${i}" data-f="name" value="${esc(c.name)}"></td>`);
+    S.days.forEach((_, d) => {
+      const lock = !!c.fixed[d];
+      h.push(`<td class="pad num"><input type="number" min="0" max="${S.periods}" data-c="${i}" data-f="day" data-d="${d}" value="${+c.perDay[d] || 0}"${lock ? " readonly title='Set by the chosen periods'" : ""} style="${lock ? "color:var(--ink-soft);background:var(--free)" : ""}"></td>`);
+    });
+    h.push(`<td class="total">${classHours(c)}</td>`);
+    h.push(`<td class="pad num"><input type="number" min="1" max="${S.periods}" data-c="${i}" data-f="maxTeacherDay" value="${c.maxTeacherDay || 2}" title="Maximum hours for any teacher in this class per day (Strict)"></td>`);
+    h.push(`<td style="text-align:center"><button class="btn small" data-pick="${i}">${openClass === i ? "Hide" : (anyFixed ? "Chosen" : "Choose")}</button></td>`);
+    h.push(`<td style="text-align:center"><button class="del" data-del-c="${i}" title="Remove class">&times;</button></td>`);
+    h.push("</tr>");
+    if (openClass === i) h.push(`<tr><td colspan="${cols}" style="background:var(--paper)">${picker(c, i)}</td></tr>`);
+  });
+  h.push("</tbody>");
+  el("classTable").innerHTML = h.join("");
+}
+
+function picker(c, ci) {
+  const h = [];
+  h.push(`<p class="hint" style="margin:2px 0 10px">Tick the exact periods ${esc(c.name)} meets. Leave a day on <em>any period</em> and the generator picks the best slots itself.</p>`);
+  h.push('<table class="pick"><thead><tr><th></th>');
+  for (let p = 0; p < S.periods; p++) h.push(`<th>P${p + 1}</th>`);
+  h.push("<th>Any period</th></tr></thead><tbody>");
+  S.days.forEach((day, d) => {
+    const f = c.fixed[d];
+    h.push(`<tr><th>${esc(day)}</th>`);
+    for (let p = 0; p < S.periods; p++) {
+      const on = f ? f.includes(p) : false;
+      h.push(`<td><input type="checkbox" data-pc="${ci}_${d}_${p}"${on ? " checked" : ""}${f ? "" : " disabled"}></td>`);
+    }
+    h.push(`<td><input type="checkbox" data-pa="${ci}_${d}"${f ? "" : " checked"}></td></tr>`);
+  });
+  h.push("</tbody></table>");
+  return h.join("");
+}
+
+function renderTeachers() {
+  const h = [];
+  h.push("<thead><tr><th style='min-width:130px'>Teacher</th><th style='width:80px'>Short form</th><th style='min-width:130px'>Subject</th><th class='num'>Max/day</th><th class='num'>Assigned</th><th style='width:34px'></th></tr></thead><tbody>");
+  S.teachers.forEach((t, i) => {
+    h.push("<tr>");
+    h.push(`<td class="pad"><input type="text" data-t="${i}" data-f="name" value="${esc(t.name)}"></td>`);
+    h.push(`<td class="pad"><input type="text" data-t="${i}" data-f="code" maxlength="4" style="text-transform:uppercase;text-align:center" value="${esc(t.code || "")}"></td>`);
+    h.push(`<td class="pad"><input type="text" data-t="${i}" data-f="subject" value="${esc(t.subject || "")}" placeholder="optional"></td>`);
+    h.push(`<td class="pad num"><input type="number" min="1" max="${S.periods}" data-t="${i}" data-f="maxPerDay" value="${t.maxPerDay}"></td>`);
+    h.push(`<td class="total">${teacherLoad(t)}</td>`);
+    h.push(`<td style="text-align:center"><button class="del" data-del-t="${i}" title="Remove teacher">&times;</button></td>`);
+    h.push("</tr>");
+  });
+  h.push("</tbody>");
+  el("teacherTable").innerHTML = h.join("");
+}
+
+/* ---------------------------------------------------------------- hours UI */
+function renderAlloc() {
+  const h = [];
+  h.push("<thead><tr><th style='min-width:130px'>Teacher</th>");
+  S.classes.forEach(c => h.push(`<th class="num">${esc(c.name)}</th>`));
+  h.push("<th class='num'>Total</th></tr></thead><tbody>");
+  S.teachers.forEach((t, ti) => {
+    h.push(`<tr><th>${esc(t.name)}</th>`);
+    S.classes.forEach((c, ci) => {
+      h.push(`<td class="pad num"><input type="number" min="0" max="40" data-a="${ti}_${ci}" value="${allocOf(t.id, c.id) || ""}" placeholder="0"></td>`);
+    });
+    h.push(`<td class="total">${teacherLoad(t)}</td></tr>`);
+  });
+  h.push("<tr><th>Allocated</th>");
+  S.classes.forEach(c => {
+    const a = classAllocated(c), n = classHours(c);
+    h.push(`<td class="total ${a === n ? "ok" : "off"}">${a}<span style="font-weight:400;color:var(--ink-soft)">/${n}</span></td>`);
+  });
+  const gt = S.teachers.reduce((a, t) => a + teacherLoad(t), 0);
+  h.push(`<td class="total">${gt}</td></tr></tbody>`);
+  el("allocTable").innerHTML = h.join("");
+  renderAllocNotes();
+}
+
+function problems() {
+  const out = [];
+  if (!S.classes.length) out.push("Add at least one class.");
+  if (!S.teachers.length) out.push("Add at least one teacher.");
+  S.classes.forEach(c => {
+    const a = classAllocated(c), n = classHours(c);
+    if (a !== n) out.push(`${c.name}: ${a} hours allocated but ${n} hours in the week — ${a > n ? "remove " + (a - n) : "add " + (n - a)}.`);
+    c.perDay.forEach((v, d) => {
+      if ((+v || 0) > S.periods) out.push(`${c.name} has ${v} hours on ${S.days[d]} but the day only has ${S.periods} periods.`);
+    });
+  });
+  S.teachers.forEach(t => {
+    const load = teacherLoad(t);
+    if (load > t.maxPerDay * S.days.length) out.push(`${t.name} has ${load} hours but can only take ${t.maxPerDay * S.days.length} at ${t.maxPerDay} per day.`);
+  });
+  S.classes.forEach(c => {
+    S.teachers.forEach(t => {
+      const hours = allocOf(t.id, c.id);
+      if (hours > 0) {
+        const excKey = t.id + "|" + c.id;
+        const limit = (S.exceptions && S.exceptions[excKey] !== undefined)
+          ? +S.exceptions[excKey]
+          : (+c.maxTeacherDay || +S.opts.maxClassPerDay || 2);
+        if (hours > limit * S.days.length) {
+          out.push(`${t.name} is allocated ${hours} hours in ${c.name}, but the daily limit is ${limit} hr/day (${limit * S.days.length} hrs max over ${S.days.length} days). Add a teacher exception or increase the limit.`);
+        }
+      }
+    });
+  });
+  const seen = {};
+  S.classes.forEach(c => {
+    const pins = pinsOfClass(c);
+    const perDayPins = {}, perTeacher = {};
+    pins.forEach(pin => {
+      perDayPins[pin.d] = (perDayPins[pin.d] || 0) + 1;
+      perTeacher[pin.t] = (perTeacher[pin.t] || 0) + 1;
+      const slot = pin.d + "|" + pin.p + "|" + pin.t;
+      if (seen[slot]) out.push(`${nameOfT(pin.t)} is locked into two classes at ${S.days[pin.d]} period ${pin.p + 1}.`);
+      seen[slot] = true;
+    });
+    Object.keys(perDayPins).forEach(d => {
+      if (perDayPins[d] > (+c.perDay[d] || 0)) out.push(`${c.name} has ${perDayPins[d]} locked hours on ${S.days[d]} but only ${+c.perDay[d] || 0} hours that day.`);
+    });
+    Object.keys(perTeacher).forEach(tid => {
+      if (perTeacher[tid] > allocOf(tid, c.id)) out.push(`${nameOfT(tid)} is locked into ${perTeacher[tid]} hours in ${c.name} but is only allocated ${allocOf(tid, c.id)}.`);
+    });
+  });
+  return out;
+}
+function nameOfT(id) { const t = S.teachers.find(x => x.id === id); return t ? t.name : "A teacher"; }
+
+function renderAllocNotes() {
+  const p = problems();
+  el("allocNotes").innerHTML = p.length
+    ? `<div class="note warn"><strong>Not ready yet</strong><ul>${p.map(x => "<li>" + esc(x) + "</li>").join("")}</ul></div>`
+    : `<div class="note ok">Everything adds up. Head to the timetable tab to generate.</div>`;
+}
+
+function renderPins() {
+  const sel = (id, items, val) => `<select id="${id}" style="width:auto">${items.map(o => `<option value="${o.v}"${o.v == val ? " selected" : ""}>${esc(o.l)}</option>`).join("")}</select>`;
+  el("pinAdd").innerHTML =
+    sel("pinC", S.classes.map(c => ({ v: c.id, l: c.name }))) +
+    sel("pinD", S.days.map((d, i) => ({ v: i, l: d }))) +
+    sel("pinP", Array.from({ length: S.periods }, (_, p) => ({ v: p, l: "Period " + (p + 1) }))) +
+    sel("pinT", S.teachers.map(t => ({ v: t.id, l: t.name }))) +
+    `<button class="btn" id="pinAddBtn">Lock this hour</button>`;
+  el("pinAddBtn").onclick = () => {
+    const cid = el("pinC").value, d = +el("pinD").value, p = +el("pinP").value, tid = el("pinT").value;
+    if (!cid || !tid) return;
+    S.pins[pinKey(cid, d, p)] = tid;
+    normalise(); renderPins(); renderResult(); save();
+  };
+  const keys = Object.keys(S.pins);
+  if (!keys.length) { el("pinList").innerHTML = `<p class="hint" style="margin:0">Nothing locked yet.</p>`; return; }
+  const items = keys.sort().map(k => {
+    const [cid, d, p] = k.split("|");
+    const c = S.classes.find(x => x.id === cid);
+    return `<span class="chip">${esc(c ? c.name : "?")} · ${esc(S.days[+d])} P${+p + 1} · ${esc(nameOfT(S.pins[k]))}<button class="del" data-unpin="${k}" title="Unlock">&times;</button></span>`;
+  }).join("");
+  el("pinList").innerHTML = `<div class="chips">${items}</div><div class="row" style="margin-top:10px"><button class="btn small" id="clearPins">Unlock everything</button></div>`;
+  el("clearPins").onclick = () => { S.pins = {}; renderPins(); renderResult(); save(); };
+  el("pinList").querySelectorAll("[data-unpin]").forEach(b => {
+    b.onclick = () => { delete S.pins[b.dataset.unpin]; renderPins(); renderResult(); save(); };
+  });
+}
+
+function renderExceptions() {
+  if (!el("excAdd")) return;
+  const sel = (id, items, val) => `<select id="${id}" style="width:auto">${items.map(o => `<option value="${o.v}"${o.v == val ? " selected" : ""}>${esc(o.l)}</option>`).join("")}</select>`;
+  const numInput = (id, val, min, max) => `<input type="number" id="${id}" min="${min}" max="${max}" value="${val}" style="width:70px">`;
+
+  el("excAdd").innerHTML =
+    `<span style="font-size:0.85rem;color:var(--ink-soft)">Teacher</span>` +
+    sel("excT", S.teachers.map(t => ({ v: t.id, l: t.name }))) +
+    `<span style="font-size:0.85rem;color:var(--ink-soft)">in Class</span>` +
+    sel("excC", S.classes.map(c => ({ v: c.id, l: c.name }))) +
+    `<span style="font-size:0.85rem;color:var(--ink-soft)">Max</span>` +
+    numInput("excHours", 2, 1, S.periods) +
+    `<span style="font-size:0.85rem;color:var(--ink-soft)">hrs/day</span>` +
+    `<button class="btn" id="excAddBtn">Add exception</button>`;
+
+  el("excAddBtn").onclick = () => {
+    const tid = el("excT").value, cid = el("excC").value;
+    const hours = Math.max(1, Math.min(S.periods, +el("excHours").value || 2));
+    if (!tid || !cid) return;
+    if (!S.exceptions) S.exceptions = {};
+    S.exceptions[tid + "|" + cid] = hours;
+    normalise();
+    renderExceptions();
+    renderAllocNotes();
+    save();
+  };
+
+  const keys = Object.keys(S.exceptions || {});
+  if (!keys.length) {
+    el("excList").innerHTML = `<p class="hint" style="margin:0">No exceptions set. All teachers follow each class's default limit.</p>`;
+    return;
+  }
+
+  const items = keys.sort().map(k => {
+    const [tid, cid] = k.split("|");
+    const t = S.teachers.find(x => x.id === tid);
+    const c = S.classes.find(x => x.id === cid);
+    const hours = S.exceptions[k];
+    const tName = t ? t.name : "Teacher";
+    const cName = c ? c.name : "Class";
+    return `<span class="chip">${esc(tName)} in ${esc(cName)}: max ${hours} hr${hours > 1 ? "s" : ""}/day <button class="del" data-del-exc="${k}" title="Remove exception">&times;</button></span>`;
+  }).join("");
+
+  el("excList").innerHTML = `<div class="chips">${items}</div><div class="row" style="margin-top:10px"><button class="btn small" id="clearExceptions">Clear all exceptions</button></div>`;
+  el("clearExceptions").onclick = () => {
+    S.exceptions = {};
+    normalise();
+    renderExceptions();
+    renderAllocNotes();
+    save();
+  };
+  el("excList").querySelectorAll("[data-del-exc]").forEach(b => {
+    b.onclick = () => {
+      delete S.exceptions[b.dataset.delExc];
+      normalise();
+      renderExceptions();
+      renderAllocNotes();
+      save();
+    };
+  });
+}
+
+el("output").addEventListener("click", e => {
+  const td = e.target.closest("td[data-pin]");
+  if (!td || VIEW !== "class") return;
+  const [ci, d, p] = td.dataset.pin.split("_").map(Number);
+  const c = S.classes[ci]; if (!c) return;
+  const k = pinKey(c.id, d, p);
+  if (S.pins[k]) delete S.pins[k];
+  else {
+    const ti = RESULT.grid[RESULT.idx(ci, d, p)];
+    if (ti < 0) return;
+    S.pins[k] = S.teachers[ti] ? S.teachers[ti].id : null;
+    if (!S.pins[k]) { delete S.pins[k]; return; }
+  }
+  renderPins(); renderResult(); save();
+});
+
+function renderAll() {
+  renderWeek(); renderClasses(); renderTeachers(); renderAlloc();
+  if (el("optMinDay")) el("optMinDay").value = S.opts.minTeacherDay;
+  if (el("optMaxRun")) el("optMaxRun").value = S.opts.maxRun || 2;
+  if (el("optNoP123")) el("optNoP123").checked = !!S.opts.noP123;
+  if (el("optFairAll")) el("optFairAll").checked = !!S.opts.fairAll;
+  if (el("optEffort")) el("optEffort").value = S.opts.effort;
+  if (el("optShort")) el("optShort").checked = !!S.opts.shortForms;
+  renderPins();
+  renderExceptions();
+  renderSummary();
+}
+
+/* ---------------------------------------------------------------- events */
+document.querySelectorAll("nav.tabs button").forEach(b => {
+  b.onclick = () => {
+    document.querySelectorAll("nav.tabs button").forEach(x => x.setAttribute("aria-selected", x === b));
+    document.querySelectorAll("section.panel").forEach(s => s.classList.toggle("on", s.id === "panel-" + b.dataset.tab));
+    if (b.dataset.tab === "hours") renderAlloc();
+  };
+});
+
+el("nDays").onchange = e => {
+  const n = Math.max(1, Math.min(7, +e.target.value || 5));
+  const def = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  const cur = S.days.slice();
+  S.days = Array.from({ length: n }, (_, i) => cur[i] || def[i]);
+  normalise(); renderAll(); save();
+};
+el("nPeriods").onchange = e => {
+  S.periods = Math.max(1, Math.min(12, +e.target.value || 5));
+  normalise(); renderAll(); save();
+};
+el("dayNames").onchange = e => {
+  const parts = e.target.value.split(",").map(s => s.trim()).filter(Boolean);
+  if (parts.length) { S.days = Array.from({ length: S.days.length }, (_, i) => parts[i] || S.days[i]); }
+  renderAll(); save();
+};
+
+el("classTable").addEventListener("input", e => {
+  const t = e.target;
+  if (t.dataset.pa !== undefined) {
+    const [ci, d] = t.dataset.pa.split("_").map(Number);
+    const c = S.classes[ci];
+    c.fixed[d] = t.checked ? null : Array.from({ length: Math.min(c.perDay[d], S.periods) }, (_, p) => p);
+    if (c.fixed[d]) c.perDay[d] = c.fixed[d].length;
+    renderClasses(); renderAlloc(); save(); return;
+  }
+  if (t.dataset.pc !== undefined) {
+    const [ci, d, p] = t.dataset.pc.split("_").map(Number);
+    const c = S.classes[ci];
+    const set = new Set(c.fixed[d] || []);
+    t.checked ? set.add(p) : set.delete(p);
+    c.fixed[d] = [...set].sort((a, b) => a - b);
+    c.perDay[d] = c.fixed[d].length;
+    renderClasses(); renderAlloc(); save(); return;
+  }
+  const i = +t.dataset.c; if (isNaN(i)) return;
+  const c = S.classes[i];
+  if (t.dataset.f === "name") c.name = t.value;
+  else if (t.dataset.f === "maxTeacherDay") {
+    c.maxTeacherDay = Math.max(1, Math.min(S.periods, +t.value || 1));
+  }
+  else if (t.dataset.f === "day") {
+    const d = +t.dataset.d;
+    if (c.fixed[d]) { t.value = c.perDay[d]; return; }
+    c.perDay[d] = Math.max(0, Math.min(S.periods, +t.value || 0));
+    t.closest("tr").querySelector(".total").textContent = classHours(c);
+  }
+  save();
+});
+el("classTable").addEventListener("click", e => {
+  const pk = e.target.dataset.pick;
+  if (pk !== undefined) { openClass = openClass === +pk ? null : +pk; renderClasses(); return; }
+  const i = e.target.dataset.delC; if (i === undefined) return;
+  const c = S.classes.splice(+i, 1)[0];
+  S.teachers.forEach(t => delete S.alloc[key(t.id, c.id)]);
+  Object.keys(S.pins).forEach(k => { if (k.startsWith(c.id + "|")) delete S.pins[k]; });
+  Object.keys(S.exceptions || {}).forEach(k => { if (k.endsWith("|" + c.id)) delete S.exceptions[k]; });
+  openClass = null;
+  renderAll(); save();
+});
+el("addClass").onclick = () => {
+  S.classes.push({ id: uid("c"), name: "Class " + (S.classes.length + 1), perDay: S.days.map(() => S.periods), fixed: S.days.map(() => null), compact: true, maxTeacherDay: S.opts.maxClassPerDay || 2 });
+  renderAll(); save();
+};
+
+el("teacherTable").addEventListener("input", e => {
+  const i = +e.target.dataset.t; if (isNaN(i)) return;
+  const t = S.teachers[i], f = e.target.dataset.f;
+  if (f === "maxPerDay") t[f] = Math.max(1, Math.min(S.periods, +e.target.value || 1));
+  else t[f] = e.target.value;
+  save();
+});
+el("teacherTable").addEventListener("change", e => {
+  if (e.target.dataset.f === "code") { normalise(); renderTeachers(); save(); }
+});
+el("teacherTable").addEventListener("click", e => {
+  const i = e.target.dataset.delT; if (i === undefined) return;
+  const t = S.teachers.splice(+i, 1)[0];
+  S.classes.forEach(c => delete S.alloc[key(t.id, c.id)]);
+  Object.keys(S.pins).forEach(k => { if (S.pins[k] === t.id) delete S.pins[k]; });
+  Object.keys(S.exceptions || {}).forEach(k => { if (k.startsWith(t.id + "|")) delete S.exceptions[k]; });
+  renderAll(); save();
+});
+el("addTeacher").onclick = () => {
+  S.teachers.push({ id: uid("t"), name: "Teacher " + (S.teachers.length + 1), code: "", subject: "", maxPerDay: Math.min(5, S.periods) });
+  normalise(); renderAll(); save();
+};
+
+el("allocTable").addEventListener("input", e => {
+  const a = e.target.dataset.a; if (!a) return;
+  const [ti, ci] = a.split("_").map(Number);
+  const v = Math.max(0, +e.target.value || 0);
+  S.alloc[key(S.teachers[ti].id, S.classes[ci].id)] = v;
+  renderAlloc();
+  const again = el("allocTable").querySelector(`[data-a="${a}"]`);
+  if (again) { again.focus(); again.select(); }
+  save();
+});
+el("clearAlloc").onclick = () => { S.alloc = {}; renderAlloc(); save(); };
+el("fillSample").onclick = () => {
+  S.alloc = {};
+  S.classes.forEach(c => {
+    let left = classHours(c);
+    const pool = S.teachers.map((t, i) => ({ t, i })).sort((a, b) => teacherLoad(a.t) - teacherLoad(b.t));
+    const take = Math.max(1, Math.min(pool.length, Math.ceil(left / Math.max(1, Math.min(...S.teachers.map(t => t.maxPerDay), 5)))));
+    const chosen = pool.slice(0, Math.max(take, Math.min(pool.length, Math.ceil(left / 5))));
+    chosen.forEach((p, j) => {
+      const share = Math.min(left, Math.ceil(left / (chosen.length - j)));
+      S.alloc[key(p.t.id, c.id)] = share; left -= share;
+    });
+  });
+  renderAlloc(); save();
+};
+el("resetAll").onclick = () => {
+  if (!confirm("Reset all classes, teachers and hours to the example?")) return;
+  S = exampleState(); RESULT = null; S.pins = {}; el("output").innerHTML = ""; el("resultNotes").innerHTML = "";
+  el("viewToggle").style.display = "none";
+  renderAll(); save();
+};
+
+["optMinDay", "optMaxRun", "optNoP123", "optFairAll", "optEffort"].forEach(id => {
+  const elem = el(id);
+  if (!elem) return;
+  elem.onchange = () => {
+    if (el("optMinDay")) S.opts.minTeacherDay = Math.max(0, +el("optMinDay").value || 0);
+    if (el("optMaxRun")) S.opts.maxRun = Math.max(1, +el("optMaxRun").value || 2);
+    if (el("optNoP123")) S.opts.noP123 = el("optNoP123").checked;
+    if (el("optFairAll")) S.opts.fairAll = el("optFairAll").checked;
+    if (el("optEffort")) S.opts.effort = +el("optEffort").value;
+    renderSummary();
+    save();
+  };
+});
+document.querySelectorAll(".step-btn").forEach(btn => {
+  btn.onclick = () => {
+    const input = el(btn.dataset.target);
+    if (!input) return;
+    const min = +input.min || 0, max = +input.max || 99;
+    const next = Math.max(min, Math.min(max, (+input.value || min) + (+btn.dataset.step)));
+    if (next === +input.value) return;
+    input.value = next;
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+  };
+});
+function renderSummary() {
+  const hard = 5 + (S.opts.noP123 ? 1 : 0);
+  const soft = S.opts.fairAll ? 1 : 0;
+  const items = [
+    [S.teachers.length, "Teachers"],
+    [S.classes.length, "Classes"],
+    [S.periods, "Periods / day"],
+    [S.days.length, "Working days"],
+    [hard, "Strict rules"],
+    [soft, "Soft preferences"]
+  ];
+  el("summaryCard").innerHTML = `<h4>Scheduling summary</h4><div class="summary-grid">${
+    items.map(([n, l]) => `<div class="summary-item"><span class="n">${n}</span><span class="l">${esc(l)}</span></div>`).join("")
+  }</div>`;
+}
+document.querySelectorAll("#viewToggle button").forEach(b => {
+  b.onclick = () => {
+    VIEW = b.dataset.view;
+    document.querySelectorAll("#viewToggle button").forEach(x => x.setAttribute("aria-pressed", x === b));
+    renderResult();
+  };
+});
+el("optShort").onchange = () => { S.opts.shortForms = el("optShort").checked; renderResult(); save(); };
+function buildCsvText() {
+  const R = RESULT, lines = [];
+  const short = !!S.opts.shortForms;
+  const label = t => short ? (t.code || t.name) : t.name;
+  if (VIEW === "class") {
+    R.classes.forEach((c, ci) => {
+      lines.push(c.name);
+      lines.push(["Day"].concat(Array.from({ length: R.P }, (_, p) => "Period " + (p + 1))).join(","));
+      R.days.forEach((day, d) => {
+        const row = [day];
+        for (let p = 0; p < R.P; p++) {
+          const t = R.grid[R.idx(ci, d, p)];
+          const T = t >= 0 ? R.teachers[t] : null;
+          row.push('"' + (T ? (T.subject ? T.subject + " / " + label(T) : label(T)) : "") + '"');
+        }
+        lines.push(row.join(","));
+      });
+      lines.push("");
+    });
+  } else if (VIEW === "teacher") {
+    R.teachers.forEach((t, ti) => {
+      lines.push(t.name + (t.code ? " (" + t.code + ")" : ""));
+      lines.push(["Day"].concat(Array.from({ length: R.P }, (_, p) => "Period " + (p + 1))).join(","));
+      R.days.forEach((day, d) => {
+        const row = [day];
+        for (let p = 0; p < R.P; p++) {
+          let found = -1;
+          for (let ci = 0; ci < R.C; ci++) if (R.grid[R.idx(ci, d, p)] === ti) { found = ci; break; }
+          row.push('"' + (found >= 0 ? R.classes[found].name : "") + '"');
+        }
+        lines.push(row.join(","));
+      });
+      lines.push("");
+    });
+  } else {
+    R.days.forEach((day, d) => {
+      lines.push(day);
+      lines.push(["Teacher"].concat(Array.from({ length: R.P }, (_, p) => "Period " + (p + 1))).join(","));
+      R.teachers.forEach((t, ti) => {
+        const row = [label(t)];
+        for (let p = 0; p < R.P; p++) {
+          let found = -1;
+          for (let ci = 0; ci < R.C; ci++) if (R.grid[R.idx(ci, d, p)] === ti) { found = ci; break; }
+          row.push('"' + (found >= 0 ? R.classes[found].name : "") + '"');
+        }
+        lines.push(row.join(","));
+      });
+      lines.push("");
+    });
+  }
+  if (R.periodStats && R.periodStats.length) {
+    lines.push("Period balance");
+    lines.push(`"${R.balancedCount} of ${R.teachers.length} teachers perfectly balanced"`);
+    lines.push(["Teacher", "Total", "Target", ...Array.from({ length: R.P }, (_, p) => "Period " + (p + 1)), "Status"].join(","));
+    R.periodStats.forEach(s => {
+      const targetStr = s.low === s.high ? `${s.low}` : `${s.low}-${s.high}`;
+      const row = ['"' + label(s) + '"', s.load, `"${targetStr}"`, ...s.counts, s.isBalanced ? "Balanced" : "Uneven"];
+      lines.push(row.join(","));
+    });
+    lines.push("");
+  }
+  return lines.join("\n");
+}
+
+function buildPdfBlob() {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
+  const R = RESULT;
+  const marginX = 34, marginY = 40;
+  const pageW = doc.internal.pageSize.getWidth();
+  const pageH = doc.internal.pageSize.getHeight();
+  const dayColW = 70;
+  const tableW = pageW - marginX * 2 - dayColW;
+  const colW = tableW / R.P;
+  const clashSet = new Set();
+  R.clashes.forEach(x => {
+    if (x.type === "clash" || (x.p !== undefined && !x.type)) {
+      clashSet.add(x.t + ":" + x.d + ":" + x.p);
+    } else if (x.type === "p123") {
+      clashSet.add(x.t + ":" + x.d + ":0");
+      clashSet.add(x.t + ":" + x.d + ":1");
+      clashSet.add(x.t + ":" + x.d + ":2");
+    } else if (x.type === "classMax") {
+      for (let p = 0; p < R.P; p++) {
+        if (R.grid[R.idx(x.ci, x.d, p)] === x.t) clashSet.add(x.t + ":" + x.d + ":" + p);
+      }
+    } else if (x.type === "dayMax" || x.type === "dayMin") {
+      for (let p = 0; p < R.P; p++) {
+        for (let ci = 0; ci < R.C; ci++) {
+          if (R.grid[R.idx(ci, x.d, p)] === x.t) clashSet.add(x.t + ":" + x.d + ":" + p);
+        }
+      }
+    } else if (x.type === "maxRun") {
+      let run = 0, runCells = [];
+      for (let p = 0; p < R.P; p++) {
+        let teaches = false;
+        for (let ci = 0; ci < R.C; ci++) {
+          if (R.grid[R.idx(ci, x.d, p)] === x.t) { teaches = true; break; }
+        }
+        if (teaches) {
+          runCells.push(p);
+        } else {
+          if (runCells.length > x.limit) {
+            runCells.forEach(pSlot => clashSet.add(x.t + ":" + x.d + ":" + pSlot));
+          }
+          runCells = [];
+        }
+      }
+      if (runCells.length > x.limit) {
+        runCells.forEach(pSlot => clashSet.add(x.t + ":" + x.d + ":" + pSlot));
+      }
+    }
+  });
+  const short = !!S.opts.shortForms;
+  const label = t => short ? (t.code || t.name) : t.name;
+
+  function drawBlock(title, meta, rowLabels, cellFn, isFirst) {
+    if (!isFirst) doc.addPage();
+    const rowH = Math.min(50, (pageH - marginY * 2 - 44) / (rowLabels.length + 1));
+    doc.setFont("helvetica", "bold"); doc.setFontSize(15); doc.setTextColor(20);
+    doc.text(title, marginX, marginY);
+    doc.setFont("helvetica", "normal"); doc.setFontSize(10); doc.setTextColor(120);
+    doc.text(meta, marginX, marginY + 15);
+    let y = marginY + 30;
+    doc.setFillColor(244, 245, 242);
+    doc.rect(marginX, y, dayColW, rowH, "F");
+    doc.rect(marginX + dayColW, y, tableW, rowH, "F");
+    doc.setDrawColor(210); doc.rect(marginX, y, dayColW, rowH);
+    doc.setFont("helvetica", "bold"); doc.setFontSize(9); doc.setTextColor(90);
+    for (let p = 0; p < R.P; p++) {
+      const cx = marginX + dayColW + p * colW;
+      doc.rect(cx, y, colW, rowH);
+      doc.text("P" + (p + 1), cx + colW / 2, y + rowH / 2 + 3, { align: "center" });
+    }
+    y += rowH;
+    rowLabels.forEach((rowLabel, ri) => {
+      doc.setDrawColor(210); doc.setLineWidth(0.6);
+      doc.rect(marginX, y, dayColW, rowH);
+      doc.setFont("helvetica", "bold"); doc.setFontSize(10); doc.setTextColor(30);
+      doc.text(doc.splitTextToSize(String(rowLabel), dayColW - 12), marginX + 7, y + rowH / 2 + 3);
+      for (let p = 0; p < R.P; p++) {
+        const cx = marginX + dayColW + p * colW;
+        const info = cellFn(ri, p) || {};
+        if (info.fill) { doc.setFillColor(...info.fill); doc.rect(cx, y, colW, rowH, "F"); }
+        doc.setDrawColor(info.clash ? 200 : 210, info.clash ? 60 : 210, info.clash ? 60 : 210);
+        doc.setLineWidth(info.clash ? 1.1 : 0.6);
+        doc.rect(cx, y, colW, rowH);
+        if (info.pinned) {
+          doc.setDrawColor(31, 107, 99); doc.setLineWidth(1.3);
+          doc.rect(cx + 1.2, y + 1.2, colW - 2.4, rowH - 2.4);
+        }
+        doc.setLineWidth(0.6); doc.setDrawColor(210);
+        if (info.main) {
+          doc.setFont("helvetica", "bold"); doc.setFontSize(9); doc.setTextColor(30);
+          const mainLines = doc.splitTextToSize(info.main, colW - 8);
+          doc.text(mainLines, cx + colW / 2, y + (info.sub ? rowH / 2 - 3 : rowH / 2 + 3), { align: "center" });
+          if (info.sub) {
+            doc.setFont("helvetica", "normal"); doc.setFontSize(7.5); doc.setTextColor(100);
+            doc.text(doc.splitTextToSize(info.sub, colW - 8), cx + colW / 2, y + rowH / 2 + 11, { align: "center" });
+          }
+        } else {
+          doc.setFont("helvetica", "normal"); doc.setFontSize(8); doc.setTextColor(170);
+          doc.text("free", cx + colW / 2, y + rowH / 2 + 3, { align: "center" });
+        }
+      }
+      y += rowH;
+    });
+  }
+
+  if (VIEW === "class") {
+    R.classes.forEach((c, ci) => {
+      const cid = S.classes[ci] ? S.classes[ci].id : null;
+      let total = 0;
+      for (let d = 0; d < R.days.length; d++) for (let p = 0; p < R.P; p++) if (R.grid[R.idx(ci, d, p)] >= 0) total++;
+      drawBlock(c.name, total + " hours a week", R.days, (ri, p) => {
+        const t = R.grid[R.idx(ci, ri, p)];
+        if (t < 0) return null;
+        const T = R.teachers[t];
+        const main = T.subject || label(T), sub = T.subject ? label(T) : null;
+        return {
+          main, sub, fill: [242, 243, 240],
+          clash: clashSet.has(t + ":" + ri + ":" + p), pinned: !!(cid && S.pins[pinKey(cid, ri, p)])
+        };
+      }, ci === 0);
+    });
+  } else if (VIEW === "teacher") {
+    R.teachers.forEach((t, ti) => {
+      let total = 0;
+      for (let d = 0; d < R.days.length; d++) for (let p = 0; p < R.P; p++)
+        for (let ci = 0; ci < R.C; ci++) if (R.grid[R.idx(ci, d, p)] === ti) total++;
+      drawBlock(`${t.name}${t.code ? " (" + t.code + ")" : ""}`, (t.subject ? t.subject + " · " : "") + total + " hours a week", R.days, (ri, p) => {
+        let found = -1;
+        for (let ci = 0; ci < R.C; ci++) if (R.grid[R.idx(ci, ri, p)] === ti) { found = ci; break; }
+        if (found < 0) return null;
+        const cid = S.classes[found] ? S.classes[found].id : null;
+        return {
+          main: R.classes[found].name, fill: [242, 243, 240],
+          clash: clashSet.has(ti + ":" + ri + ":" + p), pinned: !!(cid && S.pins[pinKey(cid, ri, p)])
+        };
+      }, ti === 0);
+    });
+  } else {
+    const rowLabels = R.teachers.map(t => label(t));
+    R.days.forEach((day, d) => {
+      drawBlock(day, R.teachers.length + " teachers", rowLabels, (ri, p) => {
+        let found = -1;
+        for (let ci = 0; ci < R.C; ci++) if (R.grid[R.idx(ci, d, p)] === ri) { found = ci; break; }
+        if (found < 0) return null;
+        const cid = S.classes[found] ? S.classes[found].id : null;
+        return {
+          main: R.classes[found].name, fill: [242, 243, 240],
+          clash: clashSet.has(ri + ":" + d + ":" + p), pinned: !!(cid && S.pins[pinKey(cid, d, p)])
+        };
+      }, d === 0);
+    });
+  }
+  if (R.periodStats && R.periodStats.length) {
+    const rowLabels = R.periodStats.map(s => label(s));
+    drawBlock("Period balance", `${R.balancedCount} of ${R.teachers.length} teachers balanced across periods`, rowLabels, (ri, p) => {
+      const s = R.periodStats[ri];
+      const cnt = s.counts[p];
+      const bad = cnt < s.low || cnt > s.high;
+      return {
+        main: String(cnt),
+        sub: s.low === s.high ? `tgt ${s.low}` : `tgt ${s.low}–${s.high}`,
+        fill: bad ? [253, 241, 220] : [242, 243, 240],
+        clash: bad,
+        pinned: false
+      };
+    }, false);
+  }
+  return doc.output("blob");
+}
+
+el("printBtn").onclick = () => { if (RESULT) window.print(); else el("progress").textContent = "Generate a timetable first."; };
+
+el("pdfBtn").onclick = async () => {
+  if (!RESULT) { el("progress").textContent = "Generate a timetable first."; return; }
+  if (!window.jspdf) { el("progress").textContent = "PDF library didn't load — check your connection and retry."; return; }
+  el("progress").textContent = "Building PDF…";
+  let blob;
+  try { blob = buildPdfBlob(); }
+  catch (e) { el("progress").textContent = "Couldn't build the PDF."; return; }
+  const dl = await ensureDownloads();
+  const filename = `timetable-${VIEW}.pdf`;
+  if (dl) {
+    try {
+      const res = await dl.save({ filename, data: blob });
+      el("progress").textContent = res.status === "saved" ? "PDF downloaded." : "PDF sent.";
+      return;
+    } catch (e) {
+      if (e && e.code === "declined") { el("progress").textContent = "Download cancelled."; return; }
+      if (e && e.code === "too_large") { el("progress").textContent = "That PDF is too large to save here."; return; }
+      /* fall through to manual open */
+    }
+  }
+  try {
+    const url = URL.createObjectURL(blob);
+    window.open(url, "_blank");
+    el("progress").textContent = "Opened the PDF in a new tab — save it from there.";
+  } catch (e) { el("progress").textContent = "Couldn't open the PDF here — try Print instead."; }
+};
+
+el("csvBtn").onclick = async () => {
+  if (!RESULT) { el("progress").textContent = "Generate a timetable first."; return; }
+  const text = buildCsvText();
+  const dl = await ensureDownloads();
+  const filename = `timetable-${VIEW}.csv`;
+  if (dl) {
+    try {
+      const res = await dl.save({ filename, data: text });
+      el("progress").textContent = res.status === "saved" ? "CSV downloaded." : "CSV sent.";
+      return;
+    } catch (e) {
+      if (e && e.code === "declined") { el("progress").textContent = "Download cancelled."; return; }
+      /* fall through to clipboard */
+    }
+  }
+  try { await navigator.clipboard.writeText(text); el("progress").textContent = "Timetable copied as CSV."; }
+  catch (e) {
+    const ta = document.createElement("textarea");
+    ta.value = text; document.body.appendChild(ta); ta.select();
+    try { document.execCommand("copy"); el("progress").textContent = "Timetable copied as CSV."; }
+    catch (e2) { el("progress").textContent = "Couldn't copy or download here — try again."; }
+    ta.remove();
+  }
+};
+
+/* ---------------------------------------------------------------- solver */
+const W_CLASH = 1000, W_OVERDAY = 140, W_EVEN = 120, W_PAIRCAP = 90, W_REPEAT = 4, W_GAP = 6, W_RUN = 55, W_COL = 28;
+
+function buildSolver() {
+  const D = S.days.length, P = S.periods, C = S.classes.length, T = S.teachers.length;
+  const idx = (ci, d, p) => (ci * D + d) * P + p;
+  const perDay = S.classes.map(c => c.perDay.map(v => Math.min(S.periods, +v || 0)));
+  const allowed = S.classes.map(c => c.fixed.map(f => f && f.length ? f.slice() : Array.from({ length: P }, (_, p) => p)));
+  const maxTC = new Int16Array(T * C);
+  for (let t = 0; t < T; t++) {
+    const tid = S.teachers[t].id;
+    for (let ci = 0; ci < C; ci++) {
+      const cid = S.classes[ci].id;
+      const excKey = tid + "|" + cid;
+      if (S.exceptions && S.exceptions[excKey] !== undefined) {
+        maxTC[t * C + ci] = Math.max(1, Math.min(P, +S.exceptions[excKey]));
+      } else {
+        maxTC[t * C + ci] = Math.max(1, Math.min(P, +S.classes[ci].maxTeacherDay || 2));
+      }
+    }
+  }
+  const minTeacherDay = Math.max(0, S.opts.minTeacherDay !== undefined ? +S.opts.minTeacherDay : 1);
+  const maxRun = Math.max(1, Math.min(P, +S.opts.maxRun || 2));
+  const noP123 = S.opts.noP123 !== undefined ? !!S.opts.noP123 : true;
+  const fairAllOn = !!S.opts.fairAll;
+  const W_STRICT = 1000;
+  const tIndex = {}; S.teachers.forEach((t, i) => tIndex[t.id] = i);
+
+  const locked = new Uint8Array(C * D * P);
+  const pinTeacher = new Int16Array(C * D * P).fill(-1);
+  S.classes.forEach((c, ci) => pinsOfClass(c).forEach(pin => {
+    const ti = tIndex[pin.t];
+    if (ti === undefined) return;
+    locked[idx(ci, pin.d, pin.p)] = 1;
+    pinTeacher[idx(ci, pin.d, pin.p)] = ti;
+  }));
+  const tMax = S.teachers.map(t => +t.maxPerDay || P);
+
+  const tLoad = new Int16Array(T);
+  const tFloor = new Int16Array(T);
+  const tCeil = new Int16Array(T);
+  for (let t = 0; t < T; t++) {
+    let load = 0;
+    S.classes.forEach(c => { load += allocOf(S.teachers[t].id, c.id); });
+    tLoad[t] = load;
+    tFloor[t] = Math.floor(load / P);
+    tCeil[t] = Math.ceil(load / P);
+  }
+  const periodCounts = new Int16Array(P);
+
+  const lessons = S.classes.map((c, ci) => {
+    const arr = [];
+    S.teachers.forEach((t, ti) => { for (let k = 0, n = allocOf(t.id, c.id); k < n; k++) arr.push(ti); });
+    pinsOfClass(c).forEach(pin => {
+      const ti = tIndex[pin.t];
+      const at = arr.indexOf(ti);
+      if (at >= 0) arr.splice(at, 1);
+    });
+    return arr;
+  });
+  const cols = new Int16Array(T * P);
+  const occ = new Int16Array(T * D * P);
+  const cnt = new Int16Array(T);
+  const rnd = n => (Math.random() * n) | 0;
+
+  function shuffle(a) { for (let i = a.length - 1; i > 0; i--) { const j = rnd(i + 1); const t = a[i]; a[i] = a[j]; a[j] = t; } return a; }
+
+  function init(g) {
+    g.fill(-1);
+    for (let ci = 0; ci < C; ci++) {
+      for (let d = 0; d < D; d++) for (let p = 0; p < P; p++) {
+        const i = idx(ci, d, p);
+        if (locked[i]) g[i] = pinTeacher[i];
+      }
+      const arr = shuffle(lessons[ci].slice());
+      let k = 0;
+      for (let d = 0; d < D; d++) {
+        const open = shuffle(allowed[ci][d].filter(p => !locked[idx(ci, d, p)]));
+        let pinnedToday = 0;
+        for (let p = 0; p < P; p++) if (locked[idx(ci, d, p)]) pinnedToday++;
+        const n = Math.min(perDay[ci][d] - pinnedToday, open.length);
+        for (let j = 0; j < n && k < arr.length; j++) g[idx(ci, d, open[j])] = arr[k++];
+      }
+    }
+  }
+
+  function cost(g) {
+    occ.fill(0);
+    let c = 0;
+    for (let ci = 0; ci < C; ci++) for (let d = 0; d < D; d++) for (let p = 0; p < P; p++) {
+      const t = g[idx(ci, d, p)];
+      if (t >= 0) occ[(t * D + d) * P + p]++;
+    }
+    // 1. Double bookings
+    for (let i = 0; i < occ.length; i++) { const v = occ[i]; if (v > 1) c += (v - 1) * W_CLASH; }
+
+    // 2. Strict daily min/max & strict no P1, P2 and P3
+    for (let t = 0; t < T; t++) {
+      const tTotal = tLoad[t];
+      for (let d = 0; d < D; d++) {
+        const base = (t * D + d) * P;
+        let load = 0;
+        for (let p = 0; p < P; p++) if (occ[base + p] > 0) load++;
+        const tLimit = tMax[t];
+        if (load > tLimit) c += (load - tLimit) * W_STRICT;
+        if (minTeacherDay > 0) {
+          if (load > 0 && load < minTeacherDay) {
+            c += (minTeacherDay - load) * W_STRICT;
+          } else if (load === 0 && tTotal >= minTeacherDay * D) {
+            c += minTeacherDay * W_STRICT;
+          }
+        }
+        if (noP123 && P >= 3) {
+          if (occ[base + 0] > 0 && occ[base + 1] > 0 && occ[base + 2] > 0) {
+            c += W_STRICT;
+          }
+        }
+        let run = 0;
+        for (let p = 0; p < P; p++) {
+          if (occ[base + p] > 0) {
+            run++;
+            if (run > maxRun) c += (run - maxRun) * W_STRICT;
+          } else {
+            run = 0;
+          }
+        }
+      }
+    }
+
+    // 3. Strict max in one class per day (with per-teacher exceptions)
+    for (let ci = 0; ci < C; ci++) {
+      for (let d = 0; d < D; d++) {
+        cnt.fill(0);
+        for (let p = 0; p < P; p++) {
+          const t = g[idx(ci, d, p)];
+          if (t >= 0) cnt[t]++;
+        }
+        for (let t = 0; t < T; t++) {
+          const n = cnt[t];
+          const limit = maxTC[t * C + ci];
+          if (n > limit) {
+            c += (n - limit) * W_STRICT;
+          }
+        }
+      }
+    }
+
+    // 4. Fair period distribution
+    if (fairAllOn) {
+      for (let t = 0; t < T; t++) {
+        const low = tFloor[t], high = tCeil[t];
+        if (high === 0) continue;
+        periodCounts.fill(0);
+        for (let d = 0; d < D; d++) {
+          const base = (t * D + d) * P;
+          for (let p = 0; p < P; p++) {
+            if (occ[base + p] > 0) periodCounts[p]++;
+          }
+        }
+        for (let p = 0; p < P; p++) {
+          const cnt = periodCounts[p];
+          if (cnt < low) c += W_EVEN * (low - cnt);
+          else if (cnt > high) c += W_EVEN * (cnt - high);
+        }
+      }
+    }
+    return c;
+  }
+
+  function pickFilled(g, ci, d) {
+    const opts = [];
+    for (let p = 0; p < P; p++) { const i = idx(ci, d, p); if (g[i] >= 0 && !locked[i]) opts.push(i); }
+    return opts.length ? opts[rnd(opts.length)] : -1;
+  }
+
+  function neighbour(g) {
+    const ci = rnd(C), d1 = rnd(D);
+    let a, b;
+    if (Math.random() < 0.6) {
+      const list = allowed[ci][d1];
+      if (list.length < 2) return null;
+      const p1 = list[rnd(list.length)], p2 = list[rnd(list.length)];
+      if (p1 === p2) return null;
+      a = idx(ci, d1, p1); b = idx(ci, d1, p2);
+      if (locked[a] || locked[b]) return null;
+    } else {
+      const d2 = rnd(D);
+      if (d2 === d1) return null;
+      a = pickFilled(g, ci, d1); b = pickFilled(g, ci, d2);
+      if (a < 0 || b < 0) return null;
+    }
+    if (g[a] === g[b]) return null;
+    const tmp = g[a]; g[a] = g[b]; g[b] = tmp;
+    return [a, b];
+  }
+
+  function clashList(g) {
+    occ.fill(0);
+    const bad = [];
+    for (let ci = 0; ci < C; ci++) for (let d = 0; d < D; d++) for (let p = 0; p < P; p++) {
+      const t = g[idx(ci, d, p)];
+      if (t >= 0) occ[(t * D + d) * P + p]++;
+    }
+    // Double bookings
+    for (let t = 0; t < T; t++) for (let d = 0; d < D; d++) for (let p = 0; p < P; p++)
+      if (occ[(t * D + d) * P + p] > 1) bad.push({ type: "clash", t, d, p });
+
+    // Strict max in class per day (with per-teacher exceptions)
+    for (let ci = 0; ci < C; ci++) {
+      for (let d = 0; d < D; d++) {
+        cnt.fill(0);
+        for (let p = 0; p < P; p++) {
+          const t = g[idx(ci, d, p)];
+          if (t >= 0) cnt[t]++;
+        }
+        for (let t = 0; t < T; t++) {
+          const limit = maxTC[t * C + ci];
+          if (cnt[t] > limit) {
+            bad.push({ type: "classMax", t, ci, d, count: cnt[t], limit });
+          }
+        }
+      }
+    }
+
+    // Strict min/max per day and no P1+P2+P3
+    for (let t = 0; t < T; t++) {
+      const tTotal = tLoad[t];
+      for (let d = 0; d < D; d++) {
+        const base = (t * D + d) * P;
+        let load = 0;
+        for (let p = 0; p < P; p++) if (occ[base + p] > 0) load++;
+        const tLimit = tMax[t];
+        if (load > tLimit) {
+          bad.push({ type: "dayMax", t, d, load, limit: tLimit });
+        }
+        if (minTeacherDay > 0) {
+          if (load > 0 && load < minTeacherDay) {
+            bad.push({ type: "dayMin", t, d, load, limit: minTeacherDay });
+          } else if (load === 0 && tTotal >= minTeacherDay * D) {
+            bad.push({ type: "dayMin", t, d, load: 0, limit: minTeacherDay });
+          }
+        }
+        if (noP123 && P >= 3) {
+          if (occ[base + 0] > 0 && occ[base + 1] > 0 && occ[base + 2] > 0) {
+            bad.push({ type: "p123", t, d });
+          }
+        }
+        let run = 0, longestRun = 0;
+        for (let p = 0; p < P; p++) {
+          if (occ[base + p] > 0) {
+            run++;
+            if (run > longestRun) longestRun = run;
+          } else {
+            run = 0;
+          }
+        }
+        if (longestRun > maxRun) {
+          bad.push({ type: "maxRun", t, d, run: longestRun, limit: maxRun });
+        }
+      }
+    }
+    return bad;
+  }
+
+  return { D, P, C, T, idx, init, cost, neighbour, clashList, tLoad, tFloor, tCeil, size: C * D * P };
+}
+
+function generate() {
+  if (running) return;
+  const probs = problems();
+  if (probs.length) {
+    el("resultNotes").innerHTML = `<div class="note bad"><strong>Timetable can't be generated yet</strong><p style="margin:4px 0 0;font-weight:400">The setup below has to be resolved first — these aren't scheduling trade-offs, they're missing or inconsistent data:</p><ul class="conflict-list">${probs.map(x => "<li>" + esc(x) + "</li>").join("")}</ul></div>`;
+    return;
+  }
+  running = true;
+  el("genBtn").disabled = true;
+  el("barWrap").style.display = "block";
+  el("resultNotes").innerHTML = "";
+
+  const sv = buildSolver();
+  const budget = [0, 45000, 250000, 500000][S.opts.effort] || 250000;
+  const restarts = [0, 3, 6, 8][S.opts.effort] || 6;
+  const g = new Int16Array(sv.size);
+  let best = null, bestCost = Infinity;
+  let r = 0, i = 0, cur = 0, temp = 0;
+
+  const startRun = () => {
+    sv.init(g); cur = sv.cost(g); i = 0; temp = 5.5;
+    if (cur < bestCost) { bestCost = cur; best = g.slice(); }
+  };
+  startRun();
+
+  const t0 = performance.now();
+  function chunk() {
+    const stop = Math.min(i + 3500, budget);
+    for (; i < stop; i++) {
+      temp = 5.5 * Math.pow(0.02 / 5.5, i / budget);
+      const mv = sv.neighbour(g);
+      if (!mv) continue;
+      const nc = sv.cost(g);
+      const d = nc - cur;
+      if (d <= 0 || Math.random() < Math.exp(-d / temp)) {
+        cur = nc;
+        if (cur < bestCost) { bestCost = cur; best = g.slice(); if (bestCost === 0) { i = budget; r = restarts; } }
+      } else {
+        const t = g[mv[0]]; g[mv[0]] = g[mv[1]]; g[mv[1]] = t;
+      }
+    }
+    const done = (r * budget + i) / (restarts * budget);
+    el("bar").style.width = Math.min(100, done * 100).toFixed(1) + "%";
+    el("progress").textContent = `Searching… best score ${bestCost}`;
+    if (i >= budget) { r++; if (r < restarts) startRun(); }
+    if (r >= restarts) return finish();
+    setTimeout(chunk, 0);
+  }
+
+  function finish() {
+    const secs = ((performance.now() - t0) / 1000).toFixed(1);
+    running = false;
+    el("genBtn").disabled = false;
+    el("barWrap").style.display = "none";
+    el("progress").textContent = `Built in ${secs}s.`;
+    const clashes = sv.clashList(best);
+    const periodStats = [];
+    let balancedCount = 0;
+    for (let t = 0; t < sv.T; t++) {
+      const counts = new Array(sv.P).fill(0);
+      for (let d = 0; d < sv.D; d++) {
+        for (let p = 0; p < sv.P; p++) {
+          let taught = false;
+          for (let ci = 0; ci < sv.C; ci++) {
+            if (best[sv.idx(ci, d, p)] === t) { taught = true; break; }
+          }
+          if (taught) counts[p]++;
+        }
+      }
+      const load = sv.tLoad[t];
+      const low = sv.tFloor[t];
+      const high = sv.tCeil[t];
+      const isBalanced = counts.every(c => c >= low && c <= high);
+      if (isBalanced) balancedCount++;
+      periodStats.push({ t, name: S.teachers[t].name, code: S.teachers[t].code, load, low, high, counts, isBalanced });
+    }
+    RESULT = {
+      grid: best, D: sv.D, P: sv.P, C: sv.C, T: sv.T, idx: sv.idx,
+      days: S.days.slice(), periods: S.periods,
+      classes: S.classes.map(c => ({ name: c.name })),
+      teachers: S.teachers.map((t, i) => ({ name: t.name, code: t.code, subject: t.subject, hue: hueFor(i) })),
+      clashes, score: bestCost,
+      periodStats, balancedCount
+    };
+    el("viewToggle").style.display = "flex";
+    renderResult();
+  }
+  setTimeout(chunk, 10);
+}
+el("genBtn").onclick = generate;
+
+/* ---------------------------------------------------------------- result UI */
+function describeClashes(R) {
+  return R.clashes.map(item => {
+    const T = R.teachers[item.t];
+    const tLabel = esc(T.name) + (T.code ? " (" + esc(T.code) + ")" : "");
+    if (item.type === "clash" || (item.p !== undefined && !item.type)) {
+      const classesHere = [];
+      for (let ci = 0; ci < R.C; ci++) if (R.grid[R.idx(ci, item.d, item.p)] === item.t) classesHere.push(R.classes[ci].name);
+      return `${tLabel} is double-booked on ${esc(R.days[item.d])}, Period ${item.p + 1} — needed in ${classesHere.map(esc).join(" and ")}.`;
+    }
+    if (item.type === "classMax") {
+      return `${tLabel} has ${item.count} hours in ${esc(R.classes[item.ci].name)} on ${esc(R.days[item.d])} (strict limit for ${esc(R.classes[item.ci].name)} is max ${item.limit} hours per day).`;
+    }
+    if (item.type === "dayMax") {
+      return `${tLabel} has ${item.load} hours on ${esc(R.days[item.d])} (strict limit is max ${item.limit} hours per day).`;
+    }
+    if (item.type === "dayMin") {
+      return `${tLabel} has ${item.load} hours on ${esc(R.days[item.d])} (strict limit is min ${item.limit} hours per day).`;
+    }
+    if (item.type === "maxRun") {
+      return `${tLabel} has ${item.run} continuous hours on ${esc(R.days[item.d])} (strict limit is max ${item.limit} continuous hours).`;
+    }
+    if (item.type === "p123") {
+      return `${tLabel} has P1, P2 and P3 classes on ${esc(R.days[item.d])} (strict rule forbids P1, P2 and P3 on the same day).`;
+    }
+    return `${tLabel} has a constraint violation.`;
+  });
+}
+
+function renderResult() {
+  if (!RESULT) { el("output").innerHTML = `<div class="empty">No timetable yet. Press “Generate timetable”.</div>`; return; }
+  const R = RESULT;
+  const notes = [];
+  if (R.clashes.length) {
+    const shown = describeClashes(R).slice(0, 8);
+    const extra = R.clashes.length - shown.length;
+    notes.push(`<div class="note bad">
+      <strong>${R.clashes.length} unresolved strict conflict${R.clashes.length > 1 ? "s" : ""}.</strong>
+      <p style="margin:4px 0 0;font-weight:400">Strict rules (double booking, max hours per class/day, daily min/max, max continuous hours, or P1+P2+P3) were violated — outlined in red below.</p>
+      <ul class="conflict-list">${shown.map(x => "<li>" + x + "</li>").join("")}</ul>
+      ${extra > 0 ? `<p class="conflict-more">+ ${extra} more</p>` : ""}
+      <p style="margin:8px 0 0;font-weight:400"><strong>To resolve:</strong> generate again (the search is randomized), raise <em>Optimization level</em> to Strong, or check if strict limits allow enough flexibility.</p>
+    </div>`);
+  } else {
+    notes.push(`<div class="note ok">All strict constraints satisfied! No double bookings, no continuous hours exceeded, no P1+P2+P3 classes, daily hours within strict bounds, and exact class hours on every day.</div>`);
+  }
+  if (R.periodStats && R.periodStats.length) {
+    const summaryText = `${R.balancedCount} of ${R.teachers.length} teachers perfectly balanced`;
+    const pHeads = Array.from({ length: R.P }, (_, p) => `<th>P${p + 1}</th>`).join("");
+    const rows = R.periodStats.map(s => {
+      const targetStr = s.low === s.high ? `${s.low}` : `${s.low}–${s.high}`;
+      const cols = s.counts.map((cnt) => {
+        const out = cnt < s.low || cnt > s.high;
+        return `<td class="${out ? "out-band" : ""}">${cnt}</td>`;
+      }).join("");
+      return `<tr>
+        <td style="text-align:left;font-weight:600">${esc(s.name)}${s.code ? " (" + esc(s.code) + ")" : ""}</td>
+        <td>${s.load}</td>
+        <td>${targetStr}</td>
+        ${cols}
+        <td>${s.isBalanced ? `<span style="color:var(--good);font-weight:600">✓</span>` : `<span style="color:var(--warn);font-weight:700">!</span>`}</td>
+      </tr>`;
+    }).join("");
+
+    notes.push(`<div class="balance-card">
+      <div class="balance-head">
+        <h4>Period balance</h4>
+        <span><strong>${esc(summaryText)}</strong> (target: load / ${R.P} per day)</span>
+      </div>
+      <div class="scroll">
+        <table class="balance-tt">
+          <thead>
+            <tr>
+              <th style="text-align:left">Teacher</th>
+              <th>Total</th>
+              <th>Band</th>
+              ${pHeads}
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    </div>`);
+  }
+  el("resultNotes").innerHTML = notes.join("");
+  if (VIEW === "master") {
+    el("resultNotes").innerHTML += `<div class="note ok" style="margin-top:8px">One table per day, every teacher as a row — read down a column to see who's teaching what in a given period.</div>`;
+  }
+
+  const clashSet = new Set();
+  R.clashes.forEach(x => {
+    if (x.type === "clash" || (x.p !== undefined && !x.type)) {
+      clashSet.add(x.t + ":" + x.d + ":" + x.p);
+    } else if (x.type === "p123") {
+      clashSet.add(x.t + ":" + x.d + ":0");
+      clashSet.add(x.t + ":" + x.d + ":1");
+      clashSet.add(x.t + ":" + x.d + ":2");
+    } else if (x.type === "classMax") {
+      for (let p = 0; p < R.P; p++) {
+        if (R.grid[R.idx(x.ci, x.d, p)] === x.t) clashSet.add(x.t + ":" + x.d + ":" + p);
+      }
+    } else if (x.type === "dayMax" || x.type === "dayMin") {
+      for (let p = 0; p < R.P; p++) {
+        for (let ci = 0; ci < R.C; ci++) {
+          if (R.grid[R.idx(ci, x.d, p)] === x.t) clashSet.add(x.t + ":" + x.d + ":" + p);
+        }
+      }
+    } else if (x.type === "maxRun") {
+      let run = 0, runCells = [];
+      for (let p = 0; p < R.P; p++) {
+        let teaches = false;
+        for (let ci = 0; ci < R.C; ci++) {
+          if (R.grid[R.idx(ci, x.d, p)] === x.t) { teaches = true; break; }
+        }
+        if (teaches) {
+          runCells.push(p);
+        } else {
+          if (runCells.length > x.limit) {
+            runCells.forEach(pSlot => clashSet.add(x.t + ":" + x.d + ":" + pSlot));
+          }
+          runCells = [];
+        }
+      }
+      if (runCells.length > x.limit) {
+        runCells.forEach(pSlot => clashSet.add(x.t + ":" + x.d + ":" + pSlot));
+      }
+    }
+  });
+  const out = [];
+  const short = !!S.opts.shortForms;
+  const label = t => short ? (t.code || t.name) : t.name;
+
+  if (VIEW === "class") {
+    R.classes.forEach((c, ci) => {
+      let total = 0;
+      const cid = S.classes[ci] ? S.classes[ci].id : null;
+      const rows = R.days.map((day, d) => {
+        const cells = [];
+        for (let p = 0; p < R.P; p++) {
+          const t = R.grid[R.idx(ci, d, p)];
+          if (t < 0) { cells.push(`<td><span class="free-mark">&mdash;</span></td>`); continue; }
+          total++;
+          const T = R.teachers[t];
+          const bad = clashSet.has(t + ":" + d + ":" + p) ? " clash" : "";
+          const pinned = cid && S.pins[pinKey(cid, d, p)] ? " pinned" : "";
+          const main = T.subject || label(T);
+          const sub = T.subject ? label(T) : null;
+          cells.push(`<td class="slot pick-cell${bad}${pinned}" data-pin="${ci}_${d}_${p}" style="--h:${T.hue}" title="${esc(T.name)} — click to lock or unlock this hour"><div class="slot-main">${esc(main)}</div>${sub ? `<div class="slot-sub">${esc(sub)}</div>` : ""}</td>`);
+        }
+        return `<tr><th class="day">${esc(day)}</th>${cells.join("")}</tr>`;
+      }).join("");
+      out.push(block(c.name, total + " hours", rows));
+    });
+  } else if (VIEW === "teacher") {
+    R.teachers.forEach((t, ti) => {
+      let total = 0;
+      const rows = R.days.map((day, d) => {
+        const cells = [];
+        for (let p = 0; p < R.P; p++) {
+          let found = -1;
+          for (let ci = 0; ci < R.C; ci++) if (R.grid[R.idx(ci, d, p)] === ti) { found = ci; break; }
+          if (found < 0) { cells.push(`<td><span class="free-mark">free</span></td>`); continue; }
+          total++;
+          const bad = clashSet.has(ti + ":" + d + ":" + p) ? " clash" : "";
+          const cid = S.classes[found] ? S.classes[found].id : null;
+          const pinned = cid && S.pins[pinKey(cid, d, p)] ? " pinned" : "";
+          cells.push(`<td class="slot${bad}${pinned}" style="--h:${t.hue}"><div class="slot-main">${esc(R.classes[found].name)}</div></td>`);
+        }
+        return `<tr><th class="day">${esc(day)}</th>${cells.join("")}</tr>`;
+      }).join("");
+      out.push(block(`${t.name}${t.code ? " (" + t.code + ")" : ""}`, (t.subject ? t.subject + " · " : "") + total + " hours", rows));
+    });
+  } else {
+    R.days.forEach((day, d) => {
+      const rows = R.teachers.map((t, ti) => {
+        const cells = [];
+        for (let p = 0; p < R.P; p++) {
+          let found = -1;
+          for (let ci = 0; ci < R.C; ci++) if (R.grid[R.idx(ci, d, p)] === ti) { found = ci; break; }
+          if (found < 0) { cells.push(`<td><span class="free-mark">free</span></td>`); continue; }
+          const bad = clashSet.has(ti + ":" + d + ":" + p) ? " clash" : "";
+          const cid = S.classes[found] ? S.classes[found].id : null;
+          const pinned = cid && S.pins[pinKey(cid, d, p)] ? " pinned" : "";
+          cells.push(`<td class="slot${bad}${pinned}" style="--h:${t.hue}"><div class="slot-main">${esc(R.classes[found].name)}</div></td>`);
+        }
+        return `<tr><th class="day" title="${esc(t.name)}">${esc(label(t))}</th>${cells.join("")}</tr>`;
+      }).join("");
+      out.push(block(day, R.teachers.length + " teachers", rows));
+    });
+  }
+  el("output").innerHTML = out.join("");
+}
+
+function block(title, meta, rows) {
+  const heads = Array.from({ length: RESULT.P }, (_, p) => `<th>Period ${p + 1}</th>`).join("");
+  return `<div class="tt-block">
+    <div class="tt-head"><h3>${esc(title)}</h3><span>${esc(meta)}</span></div>
+    <div class="scroll"><table class="grid-tt"><thead><tr><th class="day"></th>${heads}</tr></thead><tbody>${rows}</tbody></table></div>
+  </div>`;
+}
+
+renderResult();
+boot();
+</script>
+</body>
+</html>
