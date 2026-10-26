@@ -274,6 +274,11 @@ details.advanced summary:hover{color:var(--ink)}
   .grid-tt td.pinned::after{color:#000}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none !important}}
+dialog{max-width:540px;width:92%;border:none;border-radius:12px;box-shadow:0 14px 40px rgba(0,0,0,0.22);padding:22px;background:var(--card,#fff);color:var(--ink,#111)}
+dialog::backdrop{background:rgba(0,0,0,0.5);backdrop-filter:blur(2px)}
+.dept-row{display:flex;justify-content:space-between;align-items:center;padding:7px 10px;border-bottom:1px solid var(--line,#eee);font-size:.88rem}
+.dept-row:last-child{border-bottom:none}
+.dept-row input{width:70px;padding:4px 8px;font-size:.9rem;text-align:right;border:1px solid var(--line-strong,#ccc);border-radius:5px}
 </style>
 </head>
 <body>
@@ -295,6 +300,21 @@ details.advanced summary:hover{color:var(--ink)}
 
 <!-- ============ SETUP ============ -->
 <section class="panel on" id="panel-setup">
+
+  <div class="card" id="deptCard" style="border-left:4px solid var(--accent, #1a73e8);background:var(--card, #fff)">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
+      <div>
+        <h2 style="margin:0 0 4px 0">Department Preset</h2>
+        <p class="hint" style="margin:0">Select a department to load its teachers and automatically divide teaching hours (16 hrs per teacher, remainder to last).</p>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <label for="deptSelect" style="font-weight:600;font-size:.9rem;color:var(--ink-soft)">Department:</label>
+        <select id="deptSelect" style="padding:8px 12px;font-size:.9rem;font-weight:500;border:1px solid var(--line-strong, #ccc);border-radius:6px;min-width:260px;background:var(--card, #fff)">
+          <option value="">— Select Department —</option>
+        </select>
+      </div>
+    </div>
+  </div>
 
   <div class="card">
     <h2>The week</h2>
@@ -444,12 +464,213 @@ details.advanced summary:hover{color:var(--ink)}
   <div id="output"></div>
 </section>
 
+<dialog id="deptModal">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+    <h3 id="deptModalTitle" style="margin:0;font-size:18px">Department Hours</h3>
+    <button type="button" id="deptModalClose" style="background:none;border:none;font-size:24px;cursor:pointer;color:#888;line-height:1">&times;</button>
+  </div>
+  <p class="hint" style="margin:0 0 16px 0">Enter total weekly teaching hours. Hours are divided so the first teachers receive 16 hours each and the last teacher receives the remainder. All hours are editable.</p>
+  
+  <div style="margin-bottom:16px;background:#f5f7fa;padding:12px 14px;border-radius:8px">
+    <label for="deptTotalHoursInput" style="display:block;font-weight:600;margin-bottom:6px">Total Weekly Department Hours:</label>
+    <div style="display:flex;gap:10px;align-items:center">
+      <input type="number" id="deptTotalHoursInput" min="1" max="500" step="1" style="width:110px;padding:8px 10px;font-size:17px;font-weight:bold;border:1px solid #ccc;border-radius:6px;background:#fff">
+      <span style="color:#555;font-size:13px" id="deptTeacherCountNote"></span>
+    </div>
+  </div>
+
+  <div style="margin-bottom:16px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+      <label style="font-weight:600">Teacher Hours Distribution (Editable):</label>
+      <span style="font-size:12px;color:#666" id="deptSumNote"></span>
+    </div>
+    <div id="deptTeachersPreview" style="max-height:240px;overflow-y:auto;border:1px solid #e2e4e8;border-radius:8px;padding:8px;background:#fafbfc"></div>
+  </div>
+
+  <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:20px">
+    <button type="button" class="btn" id="deptModalCancel">Cancel</button>
+    <button type="button" class="btn primary" id="deptModalApply">Apply to Timetable</button>
+  </div>
+</dialog>
+
 </div>
 
 <script>
 "use strict";
 /* ---------------------------------------------------------------- state */
 const uid = p => p + Math.random().toString(36).slice(2, 8);
+
+/* ---------------------------------------------------------------- departments data */
+const DEPARTMENTS = [
+  {
+    name: "Botany",
+    code: "BOT",
+    teachers: [
+      { code: "JCB", name: "MS. JAIBY CYRIAC" },
+      { code: "MGB", name: "SR. MARIET GEORGE" },
+      { code: "VVB", name: "VEENA VINOD" },
+      { code: "DVB", name: "DEVIKA VIJAYAN" }
+    ]
+  },
+  {
+    name: "Biotechnology",
+    code: "BT",
+    teachers: [
+      { code: "ATRBT", name: "DR. ANJU T.R" },
+      { code: "BMGBT", name: "Dr. BIJOSH M G" }
+    ]
+  },
+  {
+    name: "History",
+    code: "HIS",
+    teachers: [
+      { code: "SSH", name: "Mr. SANDEEP SABU" },
+      { code: "JTH", name: "Mr. JOBY THOMAS" },
+      { code: "KMVH", name: "Dr. KRISHNAKUMAR M.V." },
+      { code: "LRH", name: "MS. LAKSHMI R" }
+    ]
+  },
+  {
+    name: "Political Science",
+    code: "POL",
+    teachers: [
+      { code: "TGPS", name: "TONY GEORGE" }
+    ]
+  },
+  {
+    name: "English",
+    code: "ENG",
+    teachers: [
+      { code: "JRE", name: "DR. JEROME K JOSE" },
+      { code: "PJE", name: "DR. PRINCY JACOB" },
+      { code: "AME", name: "Ms. AJOMY MARIA JOSEPH" },
+      { code: "SGE", name: "Ms. SONA GEORGE" },
+      { code: "GSE", name: "DR. GEORGE SEBASTIAN" },
+      { code: "BJE", name: "Ms. BINDU JOSEPH" },
+      { code: "LKE", name: "SR. LEENA P KURIAKOSE" },
+      { code: "BAE", name: "FR. BENSON N ANTONY" },
+      { code: "MME", name: "DR. MEERA MATHEWS" },
+      { code: "TTE", name: "DR. TEENA THOMSON" }
+    ]
+  },
+  {
+    name: "Psychology",
+    code: "PSY",
+    teachers: [
+      { code: "TPL", name: "DR. SR. CINJUMOL THOMAS" },
+      { code: "GPL", name: "DR. FR. GEORGEKUTTY K. K." },
+      { code: "TCPL", name: "THOMAS CHACKO" }
+    ]
+  },
+  {
+    name: "Economics",
+    code: "ECO",
+    teachers: [
+      { code: "JKAEC", name: "Dr. JENNI K ALEX" },
+      { code: "XKPEC", name: "Mr. XAVIER KURIAN P" },
+      { code: "REREC", name: "Mr. RATHEESH ER" },
+      { code: "DAEC", name: "Ms. DEEPA ABRAHAM" },
+      { code: "RMVEC", name: "Ms. ROSEMARY VARGHESE" },
+      { code: "SVSEC", name: "Ms. SANDYAMOL V.S" }
+    ]
+  },
+  {
+    name: "Malayalam",
+    code: "MAL",
+    teachers: [
+      { code: "BCJML", name: "DR. SR. BINCY CJ" },
+      { code: "BMPML", name: "DR. SR. BIJI MP" },
+      { code: "ATML", name: "DR. ANNIE THOMAS" },
+      { code: "AFMSML", name: "DR. AFINA MARY SAJU" },
+      { code: "SMML", name: "MS. SIBI MOHANAN" }
+    ]
+  },
+  {
+    name: "Hindi",
+    code: "HIN",
+    teachers: [
+      { code: "NMKHN", name: "DR. NEERADA MARIA KURIAN" },
+      { code: "TBHN", name: "MS. THARA BENNY" }
+    ]
+  },
+  {
+    name: "Physics",
+    code: "PHY",
+    teachers: [
+      { code: "BMJP", name: "DR. BEENA MARY JOHN" },
+      { code: "ISP", name: "DR. INDU SEBASTIAN" },
+      { code: "NCKP", name: "MR. NOBLE C KURIAN" },
+      { code: "SNJP", name: "DR. SIMI N.J" },
+      { code: "SJP", name: "DR. SUBIN JOSE" },
+      { code: "JMMP", name: "DR. JEEN MARIA MATHEWS" },
+      { code: "JGP", name: "DR. JEENA GEORGE" }
+    ]
+  },
+  {
+    name: "Commerce",
+    code: "COM",
+    teachers: [
+      { code: "PCMCR", name: "CAPT. PRAGEESH C MATHEW" },
+      { code: "DJCR", name: "DR. DIVYA JAMES" },
+      { code: "ATCR", name: "MR. ABY THOMAS" },
+      { code: "BDLCR", name: "Ms. Beena Deepthi Louis" },
+      { code: "BBCR", name: "DR. BONEY BOSE" },
+      { code: "JGCR", name: "MR. JOEL GEORGE" },
+      { code: "FBCR", name: "MS. FIONA BENNY" }
+    ]
+  },
+  {
+    name: "Mathematics",
+    code: "MAT",
+    teachers: [
+      { code: "DJM", name: "MS. DARY JOHN" },
+      { code: "EKTM", name: "FR. DR. ELDHO K THOMAS" },
+      { code: "SJM", name: "Dr. SONA JOSE" },
+      { code: "MSM", name: "MOHAMMED SINAN C C" },
+      { code: "VNM", name: "Dr. VISAKH NARAYANAN" },
+      { code: "AVM", name: "AMRUTHA VENUGOPAL" }
+    ]
+  },
+  {
+    name: "Statistics",
+    code: "STAT",
+    teachers: [
+      { code: "AJS", name: "MS. ALBY JOSEPH" },
+      { code: "AJBS", name: "Dr. ANJU J.B." }
+    ]
+  },
+  {
+    name: "Zoology",
+    code: "ZOO",
+    teachers: [
+      { code: "JJZ", name: "Ms. JISHA JACOB" },
+      { code: "BJZ", name: "Mr. BANY JOY" },
+      { code: "SSZ", name: "DR SOUJI S" },
+      { code: "ASJZ", name: "Mr. ALISON SHAJI JACOB" }
+    ]
+  },
+  {
+    name: "Chemistry",
+    code: "CHE",
+    teachers: [
+      { code: "BPC", name: "Mr. BIJU PETER" },
+      { code: "SJC", name: "Ms. SONA JOHN" },
+      { code: "CGC", name: "Dr. CINCY GEORGE" },
+      { code: "AJC", name: "Dr. ALEX JOSEPH" },
+      { code: "CJC", name: "Dr. CINTIL JOSE" },
+      { code: "JJC", name: "Dr. JITHIN JOY" },
+      { code: "AMJC", name: "Dr. ANU MARY JOSEPH" },
+      { code: "NTVC", name: "Dr. SR. NITHA T V" }
+    ]
+  },
+  {
+    name: "Biochemistry",
+    code: "BC",
+    teachers: [
+      { code: "RAC", name: "Dr. ROBINA ANTONY" }
+    ]
+  }
+];
 
 function exampleState() {
   const days = ["Mon", "Tue", "Wed", "Thu", "Fri"];
@@ -558,10 +779,10 @@ function normalise() {
   S.opts.maxRun = Math.max(1, Math.min(P, +S.opts.maxRun || 2));
   const used = new Set();
   S.teachers.forEach(t => {
-    let code = (t.code || "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 4);
-    if (!code) code = t.name.replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, 3) || "TCH";
+    let code = (t.code || "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8);
+    if (!code) code = t.name.replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, 4) || "TCH";
     let base = code, n = 1;
-    while (used.has(code)) { n++; code = (base.slice(0, 3) + n).slice(0, 4); }
+    while (used.has(code)) { n++; code = (base.slice(0, 6) + n).slice(0, 8); }
     used.add(code);
     t.code = code;
   });
@@ -660,11 +881,11 @@ function picker(c, ci) {
 
 function renderTeachers() {
   const h = [];
-  h.push("<thead><tr><th style='min-width:130px'>Teacher</th><th style='width:80px'>Short form</th><th style='min-width:130px'>Subject</th><th class='num'>Max/day</th><th class='num'>Assigned</th><th style='width:34px'></th></tr></thead><tbody>");
+  h.push("<thead><tr><th style='min-width:130px'>Teacher</th><th style='width:95px'>Short form</th><th style='min-width:130px'>Subject</th><th class='num'>Max/day</th><th class='num'>Assigned</th><th style='width:34px'></th></tr></thead><tbody>");
   S.teachers.forEach((t, i) => {
     h.push("<tr>");
     h.push(`<td class="pad"><input type="text" data-t="${i}" data-f="name" value="${esc(t.name)}"></td>`);
-    h.push(`<td class="pad"><input type="text" data-t="${i}" data-f="code" maxlength="4" style="text-transform:uppercase;text-align:center" value="${esc(t.code || "")}"></td>`);
+    h.push(`<td class="pad"><input type="text" data-t="${i}" data-f="code" maxlength="8" style="text-transform:uppercase;text-align:center" value="${esc(t.code || "")}"></td>`);
     h.push(`<td class="pad"><input type="text" data-t="${i}" data-f="subject" value="${esc(t.subject || "")}" placeholder="optional"></td>`);
     h.push(`<td class="pad num"><input type="number" min="1" max="${S.periods}" data-t="${i}" data-f="maxPerDay" value="${t.maxPerDay}"></td>`);
     h.push(`<td class="total">${teacherLoad(t)}</td>`);
@@ -863,7 +1084,146 @@ el("output").addEventListener("click", e => {
   renderPins(); renderResult(); save();
 });
 
+/* ---------------------------------------------------------------- department preset logic */
+let currentDept = null;
+
+function populateDeptSelect() {
+  const sel = el("deptSelect");
+  if (!sel) return;
+  const curVal = sel.value;
+  sel.innerHTML = `<option value="">— Select Department —</option>` +
+    DEPARTMENTS.map(d => `<option value="${d.code}">${esc(d.name)} (${d.teachers.length} teachers)</option>`).join("");
+  sel.value = curVal;
+}
+
+function divideDeptHours(numTeachers, totalHours) {
+  const hours = new Array(numTeachers).fill(0);
+  let rem = Math.max(0, +totalHours || 0);
+  for (let i = 0; i < numTeachers; i++) {
+    if (i === numTeachers - 1) {
+      hours[i] = rem;
+    } else if (rem >= 16) {
+      hours[i] = 16;
+      rem -= 16;
+    } else {
+      hours[i] = rem;
+      rem = 0;
+    }
+  }
+  return hours;
+}
+
+function openDeptModal(deptCode) {
+  const dept = DEPARTMENTS.find(d => d.code === deptCode);
+  if (!dept) return;
+  currentDept = dept;
+  const modal = el("deptModal");
+  if (!modal) return;
+  el("deptModalTitle").textContent = `DEPT. OF ${dept.name.toUpperCase()}`;
+  el("deptTeacherCountNote").textContent = `(${dept.teachers.length} teachers)`;
+  
+  const defaultTotal = dept.teachers.length * 16;
+  el("deptTotalHoursInput").value = defaultTotal;
+  
+  renderDeptTeachersPreview(divideDeptHours(dept.teachers.length, defaultTotal));
+  
+  if (typeof modal.showModal === "function") {
+    modal.showModal();
+  } else {
+    modal.style.display = "block";
+  }
+}
+
+function renderDeptTeachersPreview(hoursArray) {
+  if (!currentDept) return;
+  const container = el("deptTeachersPreview");
+  if (!container) return;
+  const N = currentDept.teachers.length;
+  let sum = 0;
+  container.innerHTML = currentDept.teachers.map((t, i) => {
+    const h = hoursArray[i] !== undefined ? hoursArray[i] : (i === N - 1 ? 0 : 16);
+    sum += +h || 0;
+    const tag = (i === N - 1)
+      ? `<span style="color:#d97706;font-size:.78rem;font-weight:600;margin-left:6px">(Remainder)</span>`
+      : `<span style="color:#2563eb;font-size:.78rem;margin-left:6px">(16h)</span>`;
+    return `<div class="dept-row">
+      <div>
+        <strong>${esc(t.code)}</strong> — ${esc(t.name)} ${tag}
+      </div>
+      <div style="display:flex;align-items:center;gap:4px">
+        <input type="number" class="dept-teacher-h" min="0" max="60" value="${h}" data-ti="${i}">
+        <span style="font-size:.82rem;color:var(--ink-soft)">hrs</span>
+      </div>
+    </div>`;
+  }).join("");
+  
+  el("deptSumNote").textContent = `Sum: ${sum} hrs`;
+  
+  container.querySelectorAll(".dept-teacher-h").forEach(inp => {
+    inp.oninput = () => {
+      let newSum = 0;
+      container.querySelectorAll(".dept-teacher-h").forEach(x => { newSum += Math.max(0, +x.value || 0); });
+      el("deptTotalHoursInput").value = newSum;
+      el("deptSumNote").textContent = `Sum: ${newSum} hrs`;
+    };
+  });
+}
+
+function closeDeptModal() {
+  const modal = el("deptModal");
+  if (!modal) return;
+  if (modal.open && typeof modal.close === "function") modal.close();
+  else modal.style.display = "none";
+  if (el("deptSelect")) el("deptSelect").value = "";
+}
+
+function applyTeacherHoursAllocation(targetHours) {
+  S.alloc = {};
+  if (!S.classes.length || !S.teachers.length) return;
+
+  const tRem = targetHours.slice();
+  const classNeed = S.classes.map(c => classHours(c));
+
+  let keepGoing = true;
+  let loops = 0;
+  while (keepGoing && loops < 100) {
+    loops++;
+    keepGoing = false;
+    for (let ci = 0; ci < S.classes.length; ci++) {
+      const c = S.classes[ci];
+      for (let ti = 0; ti < S.teachers.length; ti++) {
+        if (tRem[ti] <= 0) continue;
+        const tid = S.teachers[ti].id;
+        const maxForClass = (S.exceptions && S.exceptions[tid + "|" + c.id]) || c.maxTeacherDay || 2;
+        const curAlloc = allocOf(tid, c.id);
+        if (curAlloc >= Math.max(4, maxForClass * 2)) continue;
+
+        const chunk = Math.min(tRem[ti], Math.max(1, maxForClass));
+        const k = tid + "|" + c.id;
+        S.alloc[k] = (S.alloc[k] || 0) + chunk;
+        tRem[ti] -= chunk;
+        classNeed[ci] = Math.max(0, classNeed[ci] - chunk);
+        keepGoing = true;
+      }
+    }
+  }
+
+  // Fallback if any teacher still has leftover hours:
+  for (let ti = 0; ti < S.teachers.length; ti++) {
+    let ci = 0;
+    while (tRem[ti] > 0 && S.classes.length > 0) {
+      const c = S.classes[ci % S.classes.length];
+      const tid = S.teachers[ti].id;
+      const k = tid + "|" + c.id;
+      S.alloc[k] = (S.alloc[k] || 0) + 1;
+      tRem[ti] -= 1;
+      ci++;
+    }
+  }
+}
+
 function renderAll() {
+  populateDeptSelect();
   renderWeek(); renderClasses(); renderTeachers(); renderAlloc();
   if (el("optMinDay")) el("optMinDay").value = S.opts.minTeacherDay;
   if (el("optMaxRun")) el("optMaxRun").value = S.opts.maxRun || 2;
@@ -1052,6 +1412,57 @@ document.querySelectorAll("#viewToggle button").forEach(b => {
   };
 });
 el("optShort").onchange = () => { S.opts.shortForms = el("optShort").checked; renderResult(); save(); };
+
+if (el("deptSelect")) {
+  el("deptSelect").onchange = e => {
+    if (e.target.value) openDeptModal(e.target.value);
+  };
+}
+if (el("deptModalClose")) el("deptModalClose").onclick = closeDeptModal;
+if (el("deptModalCancel")) el("deptModalCancel").onclick = closeDeptModal;
+if (el("deptTotalHoursInput")) {
+  el("deptTotalHoursInput").oninput = () => {
+    if (!currentDept) return;
+    const tot = Math.max(0, +el("deptTotalHoursInput").value || 0);
+    const divided = divideDeptHours(currentDept.teachers.length, tot);
+    renderDeptTeachersPreview(divided);
+  };
+}
+if (el("deptModalApply")) {
+  el("deptModalApply").onclick = () => {
+    if (!currentDept) return;
+    const inputs = Array.from(el("deptTeachersPreview").querySelectorAll(".dept-teacher-h"));
+    const teacherHours = inputs.map(inp => Math.max(0, +inp.value || 0));
+    const total = teacherHours.reduce((a, b) => a + b, 0);
+
+    S.teachers = currentDept.teachers.map(t => ({
+      id: uid("t"),
+      name: t.name,
+      code: t.code,
+      subject: currentDept.name,
+      maxPerDay: Math.min(S.periods, 4)
+    }));
+    S.pins = {};
+    S.exceptions = {};
+
+    applyTeacherHoursAllocation(teacherHours);
+    closeDeptModal();
+    renderAll();
+    save();
+
+    const msg = el("savedMsg");
+    if (msg) {
+      msg.textContent = `Applied Dept. of ${currentDept.name} (${S.teachers.length} teachers, ${total} hrs)`;
+      msg.classList.add("show");
+      setTimeout(() => msg.classList.remove("show"), 3500);
+    }
+  };
+}
+if (el("deptModal")) {
+  el("deptModal").addEventListener("click", e => {
+    if (e.target === el("deptModal")) closeDeptModal();
+  });
+}
 function buildCsvText() {
   const R = RESULT, lines = [];
   const short = !!S.opts.shortForms;
