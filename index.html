@@ -437,8 +437,8 @@ dialog::backdrop{background:rgba(0,0,0,0.5);backdrop-filter:blur(2px)}
         <div><h3>Fairness &amp; optimization</h3></div>
       </div>
       <div class="rule-row toggle-row">
-        <label for="optFairAll">Distribute all periods fairly amongst teachers
-          <button type="button" class="info-ic" tabindex="0" data-tip="Spreads each teacher's periods evenly across every period slot during the week — not just the first one — so no teacher is stuck with the same slot pattern all week.">ⓘ</button>
+        <label for="optFairAll">Fair distribution of hours
+          <button type="button" class="info-ic" tabindex="0" data-tip="Fair distribution of hours: (1) In each class, hours are diversified across different period slots (e.g. 5 hours in a class meet in 5 different slots, not repeated in the same slot). (2) Across all classes, uniformly balances each teacher's weekly load across P1–P5 (e.g. a 16-hr teacher gets 3 hrs in 4 periods and 4 hrs in 1 period).">ⓘ</button>
         </label>
         <label class="switch"><input type="checkbox" id="optFairAll"><span class="switch-track" aria-hidden="true"></span></label>
       </div>
@@ -2118,6 +2118,25 @@ function buildSolver() {
   }
   const periodCounts = new Int16Array(P);
 
+  const tcFloor = new Int16Array(T * C);
+  const tcCeil = new Int16Array(T * C);
+  for (let t = 0; t < T; t++) {
+    for (let ci = 0; ci < C; ci++) {
+      const h = allocOf(S.teachers[t].id, S.classes[ci].id);
+      tcFloor[t * C + ci] = Math.floor(h / P);
+      tcCeil[t * C + ci] = Math.ceil(h / P);
+    }
+  }
+  const classTeachers = S.classes.map((c, ci) => {
+    const list = [];
+    S.teachers.forEach((t, ti) => {
+      if (allocOf(t.id, c.id) > 0) list.push(ti);
+    });
+    return list;
+  });
+  const classPeriodCnt = new Int16Array(T * P);
+  const W_DIVERSE = 60;
+
   const lessons = S.classes.map((c, ci) => {
     const arr = [];
     S.teachers.forEach((t, ti) => { for (let k = 0, n = allocOf(t.id, c.id); k < n; k++) arr.push(ti); });
@@ -2215,8 +2234,11 @@ function buildSolver() {
       }
     }
 
-    // 4. Fair period distribution
+    // 4. Fair period distribution:
+    // (1) Overall weekly period balance across all classes for each teacher
+    // (2) Diverse period slots within each class for each teacher (e.g. 5 hrs in class -> 5 diverse periods)
     if (fairAllOn) {
+      // 4a. Overall weekly period balance
       for (let t = 0; t < T; t++) {
         const low = tFloor[t], high = tCeil[t];
         if (high === 0) continue;
@@ -2231,6 +2253,29 @@ function buildSolver() {
           const cnt = periodCounts[p];
           if (cnt < low) c += W_EVEN * (low - cnt);
           else if (cnt > high) c += W_EVEN * (cnt - high);
+        }
+      }
+
+      // 4b. Diverse period slots within each class
+      for (let ci = 0; ci < C; ci++) {
+        classPeriodCnt.fill(0);
+        for (let d = 0; d < D; d++) {
+          for (let p = 0; p < P; p++) {
+            const t = g[idx(ci, d, p)];
+            if (t >= 0) classPeriodCnt[t * P + p]++;
+          }
+        }
+        const tList = classTeachers[ci];
+        for (let k = 0; k < tList.length; k++) {
+          const t = tList[k];
+          const low = tcFloor[t * C + ci];
+          const high = tcCeil[t * C + ci];
+          const base = t * P;
+          for (let p = 0; p < P; p++) {
+            const cnt = classPeriodCnt[base + p];
+            if (cnt > high) c += W_DIVERSE * (cnt - high);
+            else if (cnt < low) c += W_DIVERSE * (low - cnt);
+          }
         }
       }
     }
@@ -2332,7 +2377,7 @@ function buildSolver() {
     return bad;
   }
 
-  return { D, P, C, T, idx, init, cost, neighbour, clashList, tLoad, tFloor, tCeil, size: C * D * P };
+  return { D, P, C, T, idx, init, cost, neighbour, clashList, tLoad, tFloor, tCeil, tcFloor, tcCeil, classTeachers, size: C * D * P };
 }
 
 function generate() {
@@ -2411,13 +2456,33 @@ function generate() {
       if (isBalanced) balancedCount++;
       periodStats.push({ t, name: S.teachers[t].name, code: S.teachers[t].code, load, low, high, counts, isBalanced });
     }
+    let totalAssignments = 0, diverseAssignments = 0;
+    for (let ci = 0; ci < sv.C; ci++) {
+      const tList = sv.classTeachers[ci];
+      for (let k = 0; k < tList.length; k++) {
+        const t = tList[k];
+        totalAssignments++;
+        const low = sv.tcFloor[t * sv.C + ci];
+        const high = sv.tcCeil[t * sv.C + ci];
+        let ok = true;
+        for (let p = 0; p < sv.P; p++) {
+          let cnt = 0;
+          for (let d = 0; d < sv.D; d++) {
+            if (best[sv.idx(ci, d, p)] === t) cnt++;
+          }
+          if (cnt < low || cnt > high) { ok = false; break; }
+        }
+        if (ok) diverseAssignments++;
+      }
+    }
     RESULT = {
       grid: best, D: sv.D, P: sv.P, C: sv.C, T: sv.T, idx: sv.idx,
       days: S.days.slice(), periods: S.periods,
       classes: S.classes.map(c => ({ name: c.name })),
       teachers: S.teachers.map((t, i) => ({ name: t.name, code: t.code, subject: t.subject, hue: hueFor(i) })),
       clashes, score: bestCost,
-      periodStats, balancedCount
+      periodStats, balancedCount,
+      totalAssignments, diverseAssignments
     };
     el("viewToggle").style.display = "flex";
     renderResult();
@@ -2490,10 +2555,11 @@ function renderResult() {
       </tr>`;
     }).join("");
 
+    const divNote = R.totalAssignments > 0 ? ` &bull; <strong>${R.diverseAssignments} of ${R.totalAssignments} class allocations diverse across periods</strong>` : "";
     notes.push(`<div class="balance-card">
       <div class="balance-head">
-        <h4>Period balance</h4>
-        <span><strong>${esc(summaryText)}</strong> (target: load / ${R.P} per day)</span>
+        <h4>Period balance &amp; class diversity</h4>
+        <span><strong>${esc(summaryText)}</strong> (target: load / ${R.P} per slot)${divNote}</span>
       </div>
       <div class="scroll">
         <table class="balance-tt">
